@@ -1,0 +1,20 @@
+{
+  "name": "NONSTOP-AI 논사원 AI",
+  "short_name": "논사원 AI",
+  "description": "논스톱서비스 상담 데이터 기반 AI 상담비서",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

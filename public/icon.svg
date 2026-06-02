@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0f172a"/>
+  <text x="256" y="300" font-family="Apple SD Gothic Neo, Malgun Gothic, sans-serif" font-size="190" font-weight="700" fill="#ffffff" text-anchor="middle">논</text>
+  <rect x="148" y="350" width="216" height="22" rx="11" fill="#34d399"/>
+</svg>
