@@ -1,11 +1,14 @@
+/* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import AiDraftPanel from "@/components/AiDraftPanel";
 import { CategoryBadge, StatusBadge } from "@/components/badges";
 import { DispatchCard, OrderCard } from "@/components/OrderCard";
 import { getClient, getConversation, getFaqsByIds } from "@/lib/data";
+import { getConsultation } from "@/lib/store";
+import type { Consultation } from "@/lib/store";
 import type { Message } from "@/lib/types";
-import { cx, formatTime } from "@/lib/utils";
+import { cx, formatDateTime, formatTime } from "@/lib/utils";
 
 function Bubble({ m }: { m: Message }) {
   const isCustomer = m.sender === "customer";
@@ -33,7 +36,7 @@ function Bubble({ m }: { m: Message }) {
               🗺️ {a.label ?? "첨부"}
             </div>
           ))}
-          {m.text && <div>{m.text}</div>}
+          {m.text && <div className="whitespace-pre-line">{m.text}</div>}
         </div>
         <span className="text-[10px] text-slate-400 shrink-0">
           {formatTime(m.sentAt)}
@@ -49,6 +52,14 @@ export default async function ConversationDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  // 업로드된 상담자료는 원문/이미지 전용 화면으로 렌더링
+  if (id.startsWith("up_")) {
+    const c = await getConsultation(id.slice(3));
+    if (!c) notFound();
+    return <UploadedDetail c={c} />;
+  }
+
   const cv = await getConversation(id);
   if (!cv) notFound();
 
@@ -111,6 +122,76 @@ export default async function ConversationDetailPage({
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value?: string }) {
+  if (!value) return null;
+  return (
+    <div className="flex gap-2 text-sm">
+      <dt className="w-16 shrink-0 text-slate-400">{label}</dt>
+      <dd className="font-medium">{value}</dd>
+    </div>
+  );
+}
+
+function UploadedDetail({ c }: { c: Consultation }) {
+  const title =
+    [c.client_name, c.manager_name].filter(Boolean).join(" / ") ||
+    "업로드 상담자료";
+  return (
+    <div className="p-4 sm:p-6 max-w-3xl space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Link href="/conversations" className="text-slate-400 hover:text-slate-900">
+          ←
+        </Link>
+        <span className="font-semibold">{title}</span>
+        {c.consultation_type && (
+          <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
+            {c.consultation_type}
+          </span>
+        )}
+        <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs">
+          업로드 자료
+        </span>
+      </div>
+
+      <dl className="rounded-xl border border-slate-200 bg-white p-4 space-y-1">
+        <Field label="거래처" value={c.client_name} />
+        <Field label="담당자" value={c.manager_name} />
+        <Field label="상담유형" value={c.consultation_type} />
+        <Field label="등록자" value={c.created_by} />
+        <Field label="등록일" value={formatDateTime(c.created_at)} />
+      </dl>
+
+      {c.consultation_content_original && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-sm font-semibold mb-2">상담내용 (원문)</div>
+          <pre className="whitespace-pre-wrap break-words font-sans text-sm text-slate-700 bg-slate-50 rounded-lg p-3">
+            {c.consultation_content_original}
+          </pre>
+        </div>
+      )}
+
+      {c.image_urls.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-sm font-semibold mb-2">
+            상담 캡처 ({c.image_urls.length})
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {c.image_urls.map((src) => (
+              <a key={src} href={src} target="_blank" rel="noreferrer">
+                <img
+                  src={src}
+                  alt="상담 캡처"
+                  className="h-48 rounded-lg border border-slate-200 object-cover"
+                />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

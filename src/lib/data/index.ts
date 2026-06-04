@@ -9,10 +9,42 @@ import type {
   Driver,
   Faq,
 } from "@/lib/types";
+import { getConsultations } from "@/lib/store";
+import type { Consultation } from "@/lib/store";
 import { agents, clients, conversations, drivers, faqs } from "./mock";
 
 function sortByRecent(a: Conversation, b: Conversation) {
   return b.lastMessageAt.localeCompare(a.lastMessageAt);
+}
+
+// 업로드된 상담자료(consultations)를 상담관리 목록에 함께 보여주기 위한 변환.
+// 원문은 그대로 단일 메시지로 보존한다.
+function consultationToConversation(c: Consultation): Conversation {
+  const title =
+    [c.client_name, c.manager_name].filter(Boolean).join("/") ||
+    "업로드 상담자료";
+  return {
+    id: `up_${c.id}`,
+    title,
+    clientId: "",
+    contactName: c.manager_name ?? "",
+    categoryKey: c.consultation_type ?? "기타",
+    status: "open",
+    assignedAgent: c.created_by,
+    channel: "kakao",
+    messages: c.consultation_content_original
+      ? [
+          {
+            id: "m1",
+            sender: "customer",
+            text: c.consultation_content_original,
+            sentAt: c.created_at,
+          },
+        ]
+      : [],
+    createdAt: c.created_at,
+    lastMessageAt: c.created_at,
+  };
 }
 
 export async function getAgents() {
@@ -24,7 +56,8 @@ export async function getConversations(filter?: {
   clientId?: string;
   categoryTop?: string;
 }): Promise<Conversation[]> {
-  let list = [...conversations];
+  const uploaded = (await getConsultations()).map(consultationToConversation);
+  let list = [...uploaded, ...conversations];
   if (filter?.status) list = list.filter((c) => c.status === filter.status);
   if (filter?.clientId) list = list.filter((c) => c.clientId === filter.clientId);
   if (filter?.categoryTop)

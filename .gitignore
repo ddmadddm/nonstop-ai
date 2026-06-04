@@ -36,6 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# 업로드된 사용자 데이터 (로컬 파일 DB)
+/.data/
+/public/uploaded/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

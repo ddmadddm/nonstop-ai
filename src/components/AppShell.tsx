@@ -8,6 +8,7 @@ import { cx } from "@/lib/utils";
 const NAV = [
   { href: "/dashboard", label: "대시보드", icon: "📊" },
   { href: "/conversations", label: "상담관리", icon: "💬" },
+  { href: "/uploads", label: "자료 업로드", icon: "📤" },
   { href: "/faqs", label: "FAQ 관리", icon: "📚" },
   { href: "/clients", label: "거래처", icon: "🏢" },
   { href: "/search", label: "상담검색", icon: "🔍" },
