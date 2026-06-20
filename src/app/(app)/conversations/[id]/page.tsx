@@ -5,10 +5,12 @@ import AiDraftPanel from "@/components/AiDraftPanel";
 import { CategoryBadge, StatusBadge } from "@/components/badges";
 import { DispatchCard, OrderCard } from "@/components/OrderCard";
 import { getClient, getConversation, getFaqsByIds } from "@/lib/data";
-import { getConsultation } from "@/lib/store";
-import type { Consultation } from "@/lib/store";
+import { getConsultation } from "@/lib/db/consultations";
+import type { Consultation } from "@/lib/db/consultations";
 import type { Message } from "@/lib/types";
 import { cx, formatDateTime, formatTime } from "@/lib/utils";
+
+export const dynamic = "force-dynamic";
 
 function Bubble({ m }: { m: Message }) {
   const isCustomer = m.sender === "customer";

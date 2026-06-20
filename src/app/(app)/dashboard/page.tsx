@@ -3,6 +3,8 @@ import { CategoryBadge, StatusBadge } from "@/components/badges";
 import { getConversations, getStats } from "@/lib/data";
 import { formatDateTime } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 const GOALS = [
   { n: "1차", label: "상담 데이터 수집", active: true },
   { n: "2차", label: "FAQ 자동생성", active: false },

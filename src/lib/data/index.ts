@@ -9,8 +9,8 @@ import type {
   Driver,
   Faq,
 } from "@/lib/types";
-import { getConsultations } from "@/lib/store";
-import type { Consultation } from "@/lib/store";
+import { getConsultations } from "@/lib/db/consultations";
+import type { Consultation } from "@/lib/db/consultations";
 import { agents, clients, conversations, drivers, faqs } from "./mock";
 
 function sortByRecent(a: Conversation, b: Conversation) {

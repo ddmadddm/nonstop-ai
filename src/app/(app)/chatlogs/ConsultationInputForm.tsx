@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { CONSULTATION_TYPES } from "@/lib/consultationTypes";
-import { createConsultation, type SaveResult } from "./actions";
+import { createConsultation, type SaveResult } from "./consultation-actions";
 
 const ACCEPT = ["image/jpeg", "image/png"]; // jpg/jpeg/png
 function isImage(f: File) {
@@ -14,7 +14,7 @@ interface Staged {
   url: string; // object URL for preview
 }
 
-export default function UploadForm({
+export default function ConsultationInputForm({
   clientNames,
   defaultCreatedBy,
 }: {

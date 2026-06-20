@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,6 +40,14 @@ yarn-error.log*
 # 업로드된 사용자 데이터 (로컬 파일 DB)
 /.data/
 /public/uploaded/
+
+# 실제 고객 상담 데이터/녹취 (PII — 절대 커밋 금지)
+/data_nonstop/
+
+# 개발 로그/락/임시 스크립트
+dev-server.log
+.claude/scheduled_tasks.lock
+scripts/_tmp_*.mjs
 
 # typescript
 *.tsbuildinfo

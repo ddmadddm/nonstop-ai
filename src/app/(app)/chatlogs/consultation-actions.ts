@@ -3,10 +3,14 @@
 import { revalidatePath } from "next/cache";
 import {
   addConsultation,
-  deleteConsultation,
-  saveImage,
-} from "@/lib/store";
-import type { Consultation } from "@/lib/store";
+  deactivateConsultation,
+} from "@/lib/db/consultations";
+import type { NewConsultation } from "@/lib/db/consultations";
+import { saveImage } from "@/lib/storage";
+
+// 상담자료 업로드(/chatlogs)의 "직접 입력" 섹션 — 상담 원문/캡처를 수동으로 기록.
+//   파일 업로드 파이프라인과 달리 consultations 테이블에 원문 그대로 보존(AI 가공 없음).
+//   (구 /uploads 메뉴를 /chatlogs 로 통합하며 이전됨.)
 
 export interface SaveResult {
   ok: boolean;
@@ -41,21 +45,17 @@ export async function createConsultation(
     const image_urls: string[] = [];
     for (const f of files) image_urls.push(await saveImage(f));
 
-    const now = new Date().toISOString();
-    const rec: Consultation = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    const rec: NewConsultation = {
       client_name: field(formData.get("client_name")),
       manager_name: field(formData.get("manager_name")),
       consultation_type: field(formData.get("consultation_type")),
       consultation_content_original: content, // 원문 그대로
       image_urls,
       created_by: field(formData.get("created_by")),
-      created_at: now,
-      updated_at: now,
     };
 
     await addConsultation(rec);
-    revalidatePath("/uploads");
+    revalidatePath("/chatlogs");
     revalidatePath("/conversations");
     return {
       ok: true,
@@ -66,11 +66,13 @@ export async function createConsultation(
   }
 }
 
+// "삭제"는 물리삭제가 아니라 비활성화(④). 데이터/이미지는 보존된다.
 export async function removeConsultation(formData: FormData): Promise<void> {
   const id = formData.get("id");
+  const by = field(formData.get("created_by"));
   if (typeof id === "string") {
-    await deleteConsultation(id);
-    revalidatePath("/uploads");
+    await deactivateConsultation(id, by);
+    revalidatePath("/chatlogs");
     revalidatePath("/conversations");
   }
 }

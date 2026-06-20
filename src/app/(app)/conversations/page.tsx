@@ -5,6 +5,8 @@ import { getConversations } from "@/lib/data";
 import { STATUS_LABEL } from "@/lib/types";
 import { cx, formatDateTime } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 const STATUS_FILTERS: { key: string; label: string }[] = [
   { key: "", label: "전체" },
   { key: "open", label: STATUS_LABEL.open },
