@@ -150,12 +150,34 @@ function renderContext(ctx: RetrievedContext): string {
   return parts.join("\n");
 }
 
+export interface AnswerContextExtras {
+  // 주거래처로 인식 시: 그 거래처의 지식베이스 요약(우선 근거)
+  knowledgeText?: string | null;
+  // 일반 문의로 인식 시: 관련 FAQ(우선 근거)
+  faqText?: string | null;
+  // 거래처 구분 힌트(주거래처/일반/신규후보)
+  modeHint?: string | null;
+}
+
 export async function generateAnswer(
   question: string,
   ctx: RetrievedContext,
+  extras: AnswerContextExtras = {},
 ): Promise<AnswerResult> {
   const client = getClient();
   const contextText = renderContext(ctx);
+
+  const priorBlocks: string[] = [];
+  if (extras.modeHint) priorBlocks.push(`[거래처 구분] ${extras.modeHint}`);
+  if (extras.knowledgeText) {
+    priorBlocks.push(
+      `=== 이 거래처 지식베이스(우선 근거) ===\n${extras.knowledgeText}\n=== 지식베이스 끝 ===`,
+    );
+  }
+  if (extras.faqText) {
+    priorBlocks.push(`=== 관련 FAQ(우선 근거) ===\n${extras.faqText}\n=== FAQ 끝 ===`);
+  }
+  const priorText = priorBlocks.length > 0 ? priorBlocks.join("\n\n") + "\n\n" : "";
 
   const message = await client.messages.create({
     model: MODEL,
@@ -168,9 +190,9 @@ export async function generateAnswer(
     messages: [
       {
         role: "user",
-        content: `다음은 새로 들어온 고객 문의입니다. 아래 과거 상담 기록을 근거로 1차 답변문과 추출 항목을 만들어 도구로 제출하세요.
+        content: `다음은 새로 들어온 고객 문의입니다. 아래 근거(지식베이스/FAQ가 있으면 우선)와 과거 상담 기록을 바탕으로 1차 답변문과 추출 항목을 만들어 도구로 제출하세요.
 
-=== 고객 문의(질문) ===
+${priorText}=== 고객 문의(질문) ===
 ${question}
 === 질문 끝 ===
 

@@ -8,9 +8,13 @@ import {
   type FieldKey,
 } from "@/lib/ai/extract";
 
+// 세그먼트 미지정(대화 단위) 추출을 유일 인덱스에서 정규화하는 제로 UUID.
+const NULL_SEGMENT = "00000000-0000-0000-0000-000000000000";
+
 export interface Extraction extends ExtractionFields {
   id: string;
   conversation_id: string;
+  segment_id: string | null;
   ai_confidence: Record<string, number> | null;
   ai_extracted: Record<string, unknown> | null;
   ai_model: string | null;
@@ -78,9 +82,10 @@ function mapExtraction(r: ExtractionRow): Extraction {
 
 export async function getExtraction(
   conversationId: string,
+  segmentId: string | null = null,
 ): Promise<Extraction | null> {
   const rows = await sql<ExtractionRow[]>`
-    select e.id, e.conversation_id,
+    select e.id, e.conversation_id, e.segment_id,
            e.client_name, e.manager_name, e.phone, e.origin, e.destination,
            e.vehicle_type, e.consultation_type, e.is_urgent,
            e.ai_confidence, e.ai_extracted, e.ai_model, e.field_sources,
@@ -88,12 +93,17 @@ export async function getExtraction(
            e.reviewed_at, e.updated_at, a.name as reviewed_by_name
     from conversation_extractions e
     left join agents a on a.id = e.reviewed_by
-    where e.conversation_id = ${conversationId} and e.is_active`;
+    where e.conversation_id = ${conversationId} and e.is_active
+      and e.segment_id is not distinct from ${segmentId}`;
   return rows[0] ? mapExtraction(rows[0]) : null;
 }
 
-// 대화 원문(parsed_messages) → 직원/고객 라벨이 붙은 트랜스크립트
-export async function getTranscript(conversationId: string): Promise<{
+// 대화 원문(parsed_messages) → 직원/고객 라벨이 붙은 트랜스크립트.
+//   range 지정 시 해당 세그먼트 구간(seq)만 추출 대상으로 한다.
+export async function getTranscript(
+  conversationId: string,
+  range?: { startSeq: number; endSeq: number },
+): Promise<{
   messages: { sender_type: string; sender_name: string | null; content: string | null; sent_at: string | null }[];
   text: string;
 }> {
@@ -103,7 +113,10 @@ export async function getTranscript(conversationId: string): Promise<{
     select sender_type, sender_name, content, sent_at
     from parsed_messages
     where conversation_id = ${conversationId}
+      ${range ? sql`and seq between ${range.startSeq} and ${range.endSeq}` : sql``}
     order by seq`;
+  // 세그먼트 구간이 비었으면 빈 결과(원본 보존, 변환텍스트 대체는 대화 단위에서만).
+  if (rows.length === 0 && range) return { messages: [], text: "" };
   // parsed_messages 가 없는 대화(오디오 STT·이미지/PDF OCR)는 변환 텍스트로 대체.
   if (rows.length === 0) {
     const [mat] = await sql<{ converted_text: string | null }[]>`
@@ -134,11 +147,14 @@ export async function getTranscript(conversationId: string): Promise<{
 }
 
 // AI 추출 실행(최초/재추출). 직원이 고친 필드('human')는 덮어쓰지 않는다.
+//   opts.segmentId/range 지정 시 해당 상담 단위(세그먼트) 구간만 추출한다(⑥).
 export async function runExtraction(
   conversationId: string,
   byName?: string,
+  opts?: { segmentId?: string | null; range?: { startSeq: number; endSeq: number } },
 ): Promise<Extraction> {
-  const { text } = await getTranscript(conversationId);
+  const segmentId = opts?.segmentId ?? null;
+  const { text } = await getTranscript(conversationId, opts?.range);
   if (!text.trim()) throw new Error("대화 내용이 없습니다.");
   const by = await resolveAgentId(byName);
   const startedAt = Date.now();
@@ -150,9 +166,9 @@ export async function runExtraction(
     const msg = (e as Error).message;
     // 실패: 추출만 실패 상태(원본/대화는 보존). 업로드는 영향 없음(상위에서 성공 처리).
     await sql`
-      insert into conversation_extractions (conversation_id, status, error, needs_review, created_by, updated_by)
-      values (${conversationId}, 'failed', ${msg}, true, ${by}, ${by})
-      on conflict (conversation_id) where is_active
+      insert into conversation_extractions (conversation_id, segment_id, status, error, needs_review, created_by, updated_by)
+      values (${conversationId}, ${segmentId}, 'failed', ${msg}, true, ${by}, ${by})
+      on conflict (conversation_id, coalesce(segment_id, ${NULL_SEGMENT}::uuid)) where is_active
       do update set status='failed', error=${msg}, needs_review=true, updated_by=${by}`;
     // 추출 로그
     await sql`
@@ -161,7 +177,7 @@ export async function runExtraction(
     throw e;
   }
 
-  const existing = await getExtraction(conversationId);
+  const existing = await getExtraction(conversationId, segmentId);
   const sources: Record<string, "ai" | "human"> = { ...(existing?.field_sources ?? {}) };
   const merged: ExtractionFields = { ...result.fields };
 
@@ -188,16 +204,17 @@ export async function runExtraction(
         ai_model=${result.model}, field_sources=${sql.json(sources)},
         needs_review=${review.needs_review}, review_reasons=${sql.json(review.reasons)},
         status='extracted', error=null, updated_by=${by}
-      where conversation_id=${conversationId} and is_active`;
+      where conversation_id=${conversationId} and is_active
+        and segment_id is not distinct from ${segmentId}`;
   } else {
     await sql`
       insert into conversation_extractions
-        (conversation_id, client_name, manager_name, phone, origin, destination,
+        (conversation_id, segment_id, client_name, manager_name, phone, origin, destination,
          vehicle_type, consultation_type, is_urgent,
          ai_extracted, ai_confidence, ai_model, field_sources,
          needs_review, review_reasons, status, created_by, updated_by)
       values
-        (${conversationId}, ${merged.client_name}, ${merged.manager_name}, ${merged.phone},
+        (${conversationId}, ${segmentId}, ${merged.client_name}, ${merged.manager_name}, ${merged.phone},
          ${merged.origin}, ${merged.destination}, ${merged.vehicle_type},
          ${merged.consultation_type}, ${merged.is_urgent},
          ${sql.json({ ...result.fields } as Record<string, string | boolean | null>)}, ${sql.json(result.confidence)}, ${result.model},
@@ -214,7 +231,18 @@ export async function runExtraction(
        ${sql.json({ fields: result.fields, confidence: result.confidence } as unknown as Parameters<typeof sql.json>[0])},
        ${by})`;
 
-  return (await getExtraction(conversationId))!;
+  return (await getExtraction(conversationId, segmentId))!;
+}
+
+// 세그먼트(상담 단위) 온디맨드 추출 — 해당 구간만 AI 추출(⑥).
+export async function runSegmentExtraction(
+  conversationId: string,
+  segmentId: string,
+  startSeq: number,
+  endSeq: number,
+  byName?: string,
+): Promise<Extraction> {
+  return runExtraction(conversationId, byName, { segmentId, range: { startSeq, endSeq } });
 }
 
 // 직원 수정 저장. 변경이력은 fn_audit 트리거가 audit_logs 에 자동 기록.

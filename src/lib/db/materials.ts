@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import { sql, resolveAgentId } from "./client";
 import { importChatlog } from "./chatlogs";
+import { runExtraction } from "./extractions";
 import { saveOriginalFile } from "@/lib/storage";
 import { detectMaterial, type MaterialKind } from "@/lib/convert/detect";
 import { getSttProvider, isSttConfigured } from "@/lib/convert/stt";
@@ -22,7 +23,12 @@ export interface Material {
   status: string; // uploaded | converting | convert_failed | converted
   conversion_error: string | null;
   conversation_id: string | null;
+  extraction_deferred?: boolean; // 대형 채팅방 등으로 자동 추출을 보류했는지
 }
+
+// 대형(오래된) 카카오톡 채팅방 판별 기준 — 메시지 수가 이 값을 넘으면 단일 상담으로 보지 않고
+//   자동 추출을 보류한다(원본/변환만 보관). 향후 '상담 단위 분리'(docs/13)에서 세그먼트별 추출.
+const AUTO_EXTRACT_MAX_MESSAGES = Number(process.env.AUTO_EXTRACT_MAX_MESSAGES ?? 400);
 
 export interface CreateResult {
   ok: boolean;
@@ -120,6 +126,17 @@ async function createMaterialConversation(
 }
 
 // 2) 변환 — kind 로 분기. 성공 시 conversation_id 연결 + status='converted'.
+// 변환 성공 직후 AI 추출까지 자동 연결(best-effort).
+//   추출 실패는 변환 성공에 영향을 주지 않는다(runExtraction 이 실패상태/로그를 남기므로
+//   화면에서 재추출할 수 있다). 비용이 드는 AI 호출이므로 변환이 성공한 경우에만 실행.
+async function autoExtract(conversationId: string, byName?: string): Promise<void> {
+  try {
+    await runExtraction(conversationId, byName);
+  } catch {
+    // 무시: 변환은 이미 완료됨. 추출은 나중에 재시도 가능.
+  }
+}
+
 export async function convertMaterial(
   material: Material,
   buffer: Buffer,
@@ -146,7 +163,24 @@ export async function convertMaterial(
             conversion_ms=${Date.now() - t0}, conversion_error=null, updated_by=${by}
         where id=${material.id} and is_active`;
       await logConversion(material.id, material.kind, true, "parser", Date.now() - t0, null, null, by);
-      return { ...material, status: "converted", conversation_id: convId, conversion_error: null };
+      // 대형 채팅방(다수 상담 혼재)은 자동 추출 보류 → 원본 자료실에 '보관중'으로 저장.
+      //   원본(raw/parsed)은 불변 보관. 추후 분석/분리/학습 단계로 진행(docs/13).
+      const deferred = (r.totalRows ?? 0) > AUTO_EXTRACT_MAX_MESSAGES;
+      if (deferred) {
+        await sql`
+          update consultation_materials
+          set is_archive=true, archive_status='archived', updated_by=${by}
+          where id=${material.id} and is_active`;
+      } else {
+        await autoExtract(convId, byName);
+      }
+      return {
+        ...material,
+        status: "converted",
+        conversation_id: convId,
+        conversion_error: null,
+        extraction_deferred: deferred,
+      };
     }
 
     // audio / image / pdf → 텍스트 변환
@@ -180,7 +214,15 @@ export async function convertMaterial(
           conversion_error=null, updated_by=${by}
       where id=${material.id} and is_active`;
     await logConversion(material.id, material.kind, true, model, Date.now() - t0, text.length, null, by);
-    return { ...material, status: "converted", conversation_id: convId, conversion_error: null };
+    // 음성·이미지·PDF는 단일 상담 단위이므로 항상 자동 추출.
+    await autoExtract(convId, byName);
+    return {
+      ...material,
+      status: "converted",
+      conversation_id: convId,
+      conversion_error: null,
+      extraction_deferred: false,
+    };
   } catch (e) {
     const msg = (e as Error).message;
     await markFailed(material.id, msg, by);
@@ -259,6 +301,8 @@ export interface MaterialListItem {
   ext_status: string | null; // conversation_extractions.status
   needs_review: boolean | null;
   is_urgent: boolean | null;
+  is_archive: boolean; // 원본 자료실 보관 대상(대형 채팅방)
+  archive_status: string | null; // archived | analyzed | segmented | learned
   created_at: string;
   created_by_name: string | null;
 }
@@ -266,7 +310,7 @@ export interface MaterialListItem {
 export async function listMaterials(): Promise<MaterialListItem[]> {
   const rows = await sql<(Omit<MaterialListItem, "created_at"> & { created_at: Date })[]>`
     select m.id, m.filename, m.file_type, m.kind, m.status, m.conversion_error,
-           m.conversation_id, m.created_at,
+           m.conversation_id, m.created_at, m.is_archive, m.archive_status,
            e.status as ext_status, e.needs_review, e.is_urgent,
            a.name as created_by_name
     from consultation_materials m

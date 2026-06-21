@@ -7,20 +7,24 @@ import {
   confirmExtraction,
 } from "@/lib/db/extractions";
 import type { ExtractionFields } from "@/lib/ai/extract";
+import { getActorName } from "@/lib/auth";
 
 export interface ActionResult {
   ok: boolean;
   message: string;
 }
 
-const ACTOR = "오현미"; // TODO: 로그인(Supabase Auth) 도입 시 세션 사용자로 교체
+// 등록자/검수자 = 로그인 사용자(세션). 미상이면 undefined.
+async function actor(): Promise<string | undefined> {
+  return (await getActorName()) ?? undefined;
+}
 
 // AI 자동 추출(최초/재추출)
 export async function runExtractionAction(
   conversationId: string,
 ): Promise<ActionResult> {
   try {
-    await runExtraction(conversationId, ACTOR);
+    await runExtraction(conversationId, await actor());
     revalidatePath(`/chatlogs/${conversationId}`);
     revalidatePath("/chatlogs");
     return { ok: true, message: "AI 추출 완료" };
@@ -53,7 +57,7 @@ export async function saveExtractionAction(
       is_urgent:
         urgentRaw === "true" ? true : urgentRaw === "false" ? false : null,
     };
-    await saveExtractionEdits(conversationId, edits, ACTOR);
+    await saveExtractionEdits(conversationId, edits, await actor());
     revalidatePath(`/chatlogs/${conversationId}`);
     return { ok: true, message: "저장 완료" };
   } catch (e) {
@@ -66,7 +70,7 @@ export async function confirmExtractionAction(
   conversationId: string,
 ): Promise<ActionResult> {
   try {
-    await confirmExtraction(conversationId, ACTOR);
+    await confirmExtraction(conversationId, await actor());
     revalidatePath(`/chatlogs/${conversationId}`);
     revalidatePath("/chatlogs");
     return { ok: true, message: "확정 완료" };

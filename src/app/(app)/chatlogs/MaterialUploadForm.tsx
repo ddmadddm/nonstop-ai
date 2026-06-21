@@ -3,7 +3,6 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { uploadMaterialAction } from "./material-actions";
-import { runExtractionAction } from "./extraction-actions";
 import { ACCEPT_ATTR, SUPPORTED_EXTENSIONS, detectMaterial } from "@/lib/convert/detect";
 
 type Phase = "queued" | "converting" | "extracting" | "done" | "failed";
@@ -50,7 +49,8 @@ export default function MaterialUploadForm({ defaultCreatedBy }: { defaultCreate
 
     startTransition(async () => {
       for (let i = 0; i < files.length; i++) {
-        setItem(i, { phase: "converting", detail: "원본 저장·변환 중…" });
+        // 변환 + AI 추출은 서버(uploadMaterialAction → convertMaterial)에서 한 번에 처리.
+        setItem(i, { phase: "converting", detail: "원본 저장·변환·AI추출 중…" });
         const fd = new FormData();
         fd.set("file", files[i], files[i].name);
         fd.set("created_by", createdBy);
@@ -64,16 +64,12 @@ export default function MaterialUploadForm({ defaultCreatedBy }: { defaultCreate
           continue;
         }
         const ow = r.overwritten ? "덮어쓰기·" : "";
-        if (r.conversationId) {
-          setItem(i, { phase: "extracting", detail: "AI 추출 중…" });
-          const e = await runExtractionAction(r.conversationId);
-          setItem(i, {
-            phase: e.ok ? "done" : "failed",
-            detail: e.ok ? `${ow}추출 완료` : `추출대기(${e.message})`,
-          });
-        } else {
-          setItem(i, { phase: "done", detail: `${ow}변환 완료` });
-        }
+        const detail = r.extractionDeferred
+          ? `${ow}원본 자료실에 보관(보관중) · 대형 채팅방은 추후 분석/분리/학습`
+          : r.conversationId
+            ? `${ow}변환·추출 완료`
+            : `${ow}변환 완료`;
+        setItem(i, { phase: "done", detail });
       }
       setFiles([]);
       if (inputRef.current) inputRef.current.value = "";

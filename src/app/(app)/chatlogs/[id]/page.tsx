@@ -7,8 +7,11 @@ import {
   getExtractionHistory,
   getExtractionLogs,
 } from "@/lib/db/extractions";
+import { listCandidatesForConversation, listClients } from "@/lib/db/clients";
+import { getAnalysis, listSegments } from "@/lib/db/segments";
 import { formatDateTime } from "@/lib/utils";
 import ExtractionPanel from "./ExtractionPanel";
+import ArchiveDetail from "./ArchiveDetail";
 
 export const dynamic = "force-dynamic";
 
@@ -29,12 +32,48 @@ export default async function ChatlogDetailPage({
   const conv = await getConversation(id);
   if (!conv) notFound();
 
+  // 대형 채팅방(원본 자료실)은 단일 추출 대신 분석/분리 화면으로.
+  const [archiveMat] = await sql<{ is_archive: boolean; archive_status: string | null }[]>`
+    select is_archive, archive_status from consultation_materials
+    where conversation_id=${id} and is_active order by created_at desc limit 1`;
+  if (archiveMat?.is_archive) {
+    const [analysis, segments, allClients] = await Promise.all([
+      getAnalysis(id),
+      listSegments(id),
+      listClients(),
+    ]);
+    const clientOptions = allClients.map((c) => ({ id: c.id, name: c.name }));
+    return (
+      <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
+        <div className="flex items-center gap-2">
+          <Link href="/chatlogs" className="text-sm text-slate-500 hover:text-slate-900">
+            ← 상담자료
+          </Link>
+          <h1 className="text-base font-semibold truncate">{conv.title ?? "대화"}</h1>
+          <span className="text-xs text-slate-400">메시지 {conv.message_count}건</span>
+        </div>
+        <ArchiveDetail
+          conversationId={id}
+          archiveStatus={archiveMat.archive_status}
+          analysis={analysis}
+          segments={segments}
+          clientOptions={clientOptions}
+        />
+      </div>
+    );
+  }
+
   const [{ messages }, extraction] = await Promise.all([
     getTranscript(id),
     getExtraction(id),
   ]);
   const history = extraction ? await getExtractionHistory(extraction.id) : [];
   const logs = await getExtractionLogs(id);
+  const [candidates, allClients] = await Promise.all([
+    listCandidatesForConversation(id),
+    listClients(),
+  ]);
+  const clientOptions = allClients.map((c) => ({ id: c.id, name: c.name }));
 
   return (
     <div className="p-4 sm:p-6 space-y-4 max-w-6xl">
@@ -79,7 +118,12 @@ export default async function ChatlogDetailPage({
 
         {/* 우: AI 추출 결과 + 직원 수정 */}
         <section className="space-y-4">
-          <ExtractionPanel conversationId={id} extraction={extraction} />
+          <ExtractionPanel
+            conversationId={id}
+            extraction={extraction}
+            candidates={candidates}
+            clientOptions={clientOptions}
+          />
 
           {/* 변경 이력 */}
           <div className="rounded-xl border border-slate-200 bg-white">

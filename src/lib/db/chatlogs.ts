@@ -10,6 +10,15 @@ function sha256(data: Buffer | string): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
+// 청크 벌크 INSERT — Postgres 1쿼리 바인드 파라미터 한계(65535)와 메모리를 고려해 분할.
+//   대용량 카카오 export(수만 행)도 행별 왕복 없이 수 초에 적재.
+const INSERT_CHUNK = 1000;
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 // 논스톱서비스(직원) 계정 판별 → sender_type='staff', 그 외 'customer'
 //   판별 우선순위: 1) '논스톱' 포함  2) DB 직원 명단(agents)  3) env 폴백
 function staffNames(): string[] {
@@ -117,18 +126,23 @@ export async function importChatlog(params: {
       returning id`;
     const batchId = batch.id;
 
-    // 2) 원본 메시지(raw_messages) — 1행=1행, 불변
+    // 2) 원본 메시지(raw_messages) — 1행=1행, 불변. 청크 벌크 INSERT(대용량 대비).
+    //    행 해시 시드 = 배치ID(업로드마다 고유) → 동일 내용 재업로드해도 충돌하지 않음.
+    const rawValues = parsed.rows.map((row) => ({
+      batch_id: batchId,
+      row_index: row.rowIndex,
+      raw: tx.json(row.raw),
+      date_raw: row.date_raw,
+      user_raw: row.user_raw,
+      message_raw: row.message_raw,
+      row_hash: sha256(`${batchId}:${row.rowIndex}`),
+    }));
     const rawIds: string[] = [];
-    for (const row of parsed.rows) {
-      // 행 해시 시드 = 배치ID(업로드마다 고유) → 동일 내용 재업로드해도 충돌하지 않음.
-      const rowHash = sha256(`${batchId}:${row.rowIndex}`);
-      const [r] = await tx<{ id: string }[]>`
-        insert into raw_messages
-          (batch_id, row_index, raw, date_raw, user_raw, message_raw, row_hash)
-        values (${batchId}, ${row.rowIndex}, ${tx.json(row.raw)},
-                ${row.date_raw}, ${row.user_raw}, ${row.message_raw}, ${rowHash})
+    for (const part of chunk(rawValues, INSERT_CHUNK)) {
+      const ins = await tx<{ id: string }[]>`
+        insert into raw_messages ${tx(part)}
         returning id`;
-      rawIds.push(r.id);
+      for (const r of ins) rawIds.push(r.id);
     }
 
     // 3) 대화 자동 그룹화 — 기본: 파일 1개 = 대화 1개(카카오 채팅방 단위)
@@ -147,43 +161,50 @@ export async function importChatlog(params: {
       returning id`;
     const conversationId = conv.id;
 
-    // 4) 정제 메시지 — sender_type 분류 + 대화 연결 + 시각
-    for (let i = 0; i < parsed.rows.length; i++) {
-      const row = parsed.rows[i];
-      const senderType = isStaff(row.user_raw, staffRoster) ? "staff" : "customer";
-      await tx`
-        insert into parsed_messages
-          (conversation_id, raw_message_id, seq, sender_type, sender_name, content, sent_at)
-        values (${conversationId}, ${rawIds[i]}, ${i}, ${senderType},
-                ${row.user_raw || null}, ${row.message_raw}, ${row.date_value})`;
+    // 4) 정제 메시지 — sender_type 분류 + 대화 연결 + 시각. 청크 벌크 INSERT.
+    const parsedValues = parsed.rows.map((row, i) => ({
+      conversation_id: conversationId,
+      raw_message_id: rawIds[i],
+      seq: i,
+      sender_type: isStaff(row.user_raw, staffRoster) ? "staff" : "customer",
+      sender_name: row.user_raw || null,
+      content: row.message_raw,
+      sent_at: row.date_value,
+    }));
+    for (const part of chunk(parsedValues, INSERT_CHUNK)) {
+      await tx`insert into parsed_messages ${tx(part)}`;
     }
 
-    // 5) AI 학습 데이터 — (직전 고객 발화 묶음) → (직원 응답) 쌍
-    let trainingCount = 0;
+    // 5) AI 학습 데이터 — (직전 고객 발화 묶음) → (직원 응답) 쌍. 모아서 청크 벌크 INSERT.
+    const trainingValues: Record<string, unknown>[] = [];
     let pending: { text: string }[] = [];
-    for (let i = 0; i < parsed.rows.length; i++) {
-      const row = parsed.rows[i];
+    for (const row of parsed.rows) {
       const text = row.message_raw.trim();
       if (!text) continue;
       if (isStaff(row.user_raw, staffRoster)) {
         if (pending.length > 0) {
-          const inputText = pending.map((p) => p.text).join("\n");
-          // 학습쌍 dedup 시드 = 대화ID(업로드마다 고유) → 재업로드해도 충돌하지 않음.
-          const dedup = sha256(`${conversationId}:qa:${row.rowIndex}`);
-          await tx`
-            insert into ai_training_data
-              (conversation_id, kind, input_text, output_text, context, dedup_hash, created_by)
-            values (${conversationId}, 'qa_pair', ${inputText}, ${text},
-                    ${tx.json({ output_row_index: row.rowIndex, input_count: pending.length })},
-                    ${dedup}, ${createdBy})
-            on conflict (dedup_hash) where dedup_hash is not null do nothing`;
-          trainingCount++;
+          trainingValues.push({
+            conversation_id: conversationId,
+            kind: "qa_pair",
+            input_text: pending.map((p) => p.text).join("\n"),
+            output_text: text,
+            context: tx.json({ output_row_index: row.rowIndex, input_count: pending.length }),
+            // 학습쌍 dedup 시드 = 대화ID(업로드마다 고유) → 재업로드해도 충돌하지 않음.
+            dedup_hash: sha256(`${conversationId}:qa:${row.rowIndex}`),
+            created_by: createdBy,
+          });
           pending = [];
         }
         // 직원 발화 연속이면 마지막 응답만 유지(이전 pending 없으면 skip)
       } else {
         pending.push({ text });
       }
+    }
+    const trainingCount = trainingValues.length;
+    for (const part of chunk(trainingValues, INSERT_CHUNK)) {
+      await tx`
+        insert into ai_training_data ${tx(part)}
+        on conflict (dedup_hash) where dedup_hash is not null do nothing`;
     }
 
     // 6) 배치 집계 갱신

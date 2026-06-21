@@ -1,16 +1,52 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { retrieveContext, saveDraft } from "@/lib/db/assistant";
+import {
+  retrieveContext,
+  saveDraft,
+  findClientInText,
+  saveProspect,
+} from "@/lib/db/assistant";
 import { generateAnswer } from "@/lib/ai/answer";
+import { getClientKnowledge, type ClientKnowledge } from "@/lib/db/knowledge";
+import { getClient, searchClients, type ClientSearchHit } from "@/lib/db/clients";
+import { getFaqs } from "@/lib/data";
+import { getActorName } from "@/lib/auth";
+import type { Faq } from "@/lib/types";
 import type { ExtractionFields, FieldKey } from "@/lib/ai/extract";
 
-const ACTOR = "오현미"; // TODO: 로그인(Supabase Auth) 도입 시 세션 사용자로 교체
+// 거래처 구분(라디오) — 직원 선택값
+export type ClientMode = "auto" | "general" | "key_client" | "new_candidate";
+export type ResolvedMode = Exclude<ClientMode, "auto">;
+
+export const MODE_LABEL: Record<ResolvedMode, string> = {
+  general: "일반 문의",
+  key_client: "주거래처",
+  new_candidate: "신규 거래처 후보",
+};
+
+export interface Recognition {
+  requestedMode: ClientMode;
+  resolvedMode: ResolvedMode;
+  auto: boolean; // 자동판단으로 결정됐는지
+  matchedClientId: string | null;
+  matchedClientName: string | null;
+  matchType: "phone" | "name" | "manual" | null;
+  confidence: number; // 0~1
+  extracted: {
+    client_name: string | null;
+    manager_name: string | null;
+    phone: string | null;
+    origin: string | null;
+    destination: string | null;
+  };
+  prospectSaved: boolean;
+}
 
 export interface AnswerSource {
   conversation_id: string;
   excerpt: string;
-  used: boolean; // 모델이 근거로 명시한 출처인지
+  used: boolean;
 }
 
 export interface AnswerActionResult {
@@ -20,21 +56,118 @@ export interface AnswerActionResult {
   fields?: ExtractionFields;
   confidence?: Record<FieldKey, number>;
   sources?: AnswerSource[];
-  matchedTotal?: number; // 검색된 전체 후보 수(은닉 truncation 방지 표기)
+  matchedTotal?: number;
+  recognition?: Recognition;
+  basis?: string[]; // 참고한 근거 라벨
 }
 
-// 상담 문의(질문) → 과거 기록 검색 → 1차 답변 생성 → 기록 후 반환.
+function renderKnowledge(name: string, k: ClientKnowledge): string {
+  const list = (arr: { value: string; count: number }[]) =>
+    arr.slice(0, 5).map((x) => `${x.value}(${x.count})`).join(", ") || "-";
+  const mgr =
+    k.managers.slice(0, 3).map((m) => `${m.name ?? "-"}${m.phone ? "/" + m.phone : ""}`).join(", ") ||
+    "-";
+  return (
+    `거래처 '${name}' 누적 패턴 — 자주 출발지: ${list(k.origins)}; 자주 도착지: ${list(k.destinations)}; ` +
+    `자주 차종: ${list(k.vehicles)}; 담당자: ${mgr}; 집계 상담 ${k.total}건.`
+  );
+}
+
+async function matchFaqs(q: string): Promise<Faq[]> {
+  const all = await getFaqs();
+  return all
+    .map((f) => ({ f, hits: f.keywords.filter((k) => q.includes(k)).length }))
+    .filter((s) => s.hits > 0)
+    .sort((a, b) => b.hits - a.hits)
+    .slice(0, 3)
+    .map((s) => s.f);
+}
+function renderFaqs(faqs: Faq[]): string | null {
+  if (faqs.length === 0) return null;
+  return faqs.map((f, i) => `FAQ${i + 1}\n  Q: ${f.question}\n  A: ${f.answer}`).join("\n");
+}
+
+// 상담 문의(질문) → 거래처 구분(자동/수동) → 근거 우선순위 → 1차 답변 생성.
+// 거래처 검색(논사원 주거래처 선택용) — 거래처명/담당자/연락처
+export async function searchClientsAction(query: string): Promise<ClientSearchHit[]> {
+  return searchClients(query);
+}
+
 export async function generateAnswerAction(
   question: string,
+  requestedMode: ClientMode = "auto",
+  selectedClientId?: string | null,
 ): Promise<AnswerActionResult> {
   const q = question.trim();
   if (!q) return { ok: false, message: "상담 문의(질문)를 입력해 주세요." };
 
   try {
-    const ctx = await retrieveContext(q);
-    const result = await generateAnswer(q, ctx);
+    const actor = (await getActorName()) ?? undefined;
 
-    // 출처 정리: 검색 스니펫 + 모델이 사용했다고 표시한 id 표시.
+    // 1) 거래처 인식 — 직원이 직접 지정한 거래처가 있으면 우선(수동 변경), 없으면 질문에서 자동 매칭.
+    let matched = await findClientInText(q);
+    if (selectedClientId) {
+      const c = await getClient(selectedClientId);
+      if (c) matched = { id: c.id, name: c.name, how: "manual", score: 1 };
+    }
+
+    // 2) 근거 우선순위 결정
+    //    주거래처(매칭 또는 수동 주거래처) → 지식베이스 우선. 그 외 → FAQ + 과거 상담.
+    const useKnowledge =
+      !!matched && (requestedMode === "key_client" || requestedMode === "auto");
+    const wantFaq =
+      requestedMode === "general" ||
+      requestedMode === "new_candidate" ||
+      (requestedMode === "auto" && !matched);
+
+    const ctx = await retrieveContext(q);
+    const knowledgeText =
+      useKnowledge && matched
+        ? (await getClientKnowledge(matched.id).then((k) =>
+            k ? renderKnowledge(matched.name, k) : null,
+          ))
+        : null;
+    const faqs = wantFaq ? await matchFaqs(q) : [];
+    const faqText = renderFaqs(faqs);
+
+    const modeHint = useKnowledge
+      ? `주거래처(${matched!.name}) — 지식베이스 우선`
+      : wantFaq
+        ? "일반/신규 — FAQ·과거 상담 우선"
+        : null;
+
+    // 3) 답변 생성
+    const result = await generateAnswer(q, ctx, { knowledgeText, faqText, modeHint });
+    const f = result.fields;
+
+    // 4) 최종 구분(자동판단이면 추출 결과로 재분류)
+    let resolvedMode: ResolvedMode;
+    if (requestedMode !== "auto") {
+      resolvedMode = requestedMode;
+    } else if (matched) {
+      resolvedMode = "key_client";
+    } else if (f.client_name || f.phone) {
+      resolvedMode = "new_candidate";
+    } else {
+      resolvedMode = "general";
+    }
+
+    // 5) 신규 후보 저장
+    let prospectSaved = false;
+    if (resolvedMode === "new_candidate" && (f.client_name || f.phone)) {
+      await saveProspect({
+        name: f.client_name,
+        manager_name: f.manager_name,
+        phone: f.phone,
+        origin: f.origin,
+        destination: f.destination,
+        question: q,
+        byName: actor,
+      });
+      prospectSaved = true;
+    }
+
+    // 6) 출처 정리
     const usedSet = new Set(result.used_source_ids);
     const seen = new Set<string>();
     const sources: AnswerSource[] = [];
@@ -48,6 +181,17 @@ export async function generateAnswerAction(
       });
     }
 
+    // 7) 인식 신뢰도
+    const confidence = matched
+      ? matched.how === "manual"
+        ? 1
+        : matched.how === "phone"
+          ? 0.95
+          : 0.85
+      : resolvedMode === "new_candidate"
+        ? 0.5
+        : 0.3;
+
     await saveDraft({
       question: q,
       answerDraft: result.answer_draft,
@@ -57,8 +201,40 @@ export async function generateAnswerAction(
         .filter((s) => s.used)
         .map((s) => ({ conversation_id: s.conversation_id, excerpt: s.excerpt })),
       model: result.model,
-      byName: ACTOR,
+      byName: actor,
+      requestedMode,
+      clientMode: resolvedMode,
+      recognizedClientId: matched?.id ?? null,
+      recognitionConfidence: confidence,
+      clientName: matched?.name ?? f.client_name,
+      managerName: f.manager_name,
+      phone: f.phone,
     });
+
+    // 8) 근거 라벨
+    const basis: string[] = [];
+    if (resolvedMode === "key_client" && knowledgeText) basis.push(`거래처 지식베이스(${matched!.name})`);
+    if (faqText) basis.push(`FAQ ${faqs.length}건`);
+    if (prospectSaved) basis.push("신규 거래처 후보로 저장");
+    basis.push(`과거 상담 ${sources.length}건`);
+
+    const recognition: Recognition = {
+      requestedMode,
+      resolvedMode,
+      auto: requestedMode === "auto",
+      matchedClientId: matched?.id ?? null,
+      matchedClientName: matched?.name ?? null,
+      matchType: matched?.how ?? null,
+      confidence,
+      extracted: {
+        client_name: f.client_name,
+        manager_name: f.manager_name,
+        phone: f.phone,
+        origin: f.origin,
+        destination: f.destination,
+      },
+      prospectSaved,
+    };
 
     revalidatePath("/assistant");
     return {
@@ -69,6 +245,8 @@ export async function generateAnswerAction(
       confidence: result.confidence,
       sources,
       matchedTotal: ctx.total,
+      recognition,
+      basis,
     };
   } catch (e) {
     return { ok: false, message: `답변 생성 실패: ${(e as Error).message}` };
