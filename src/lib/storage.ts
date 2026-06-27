@@ -30,3 +30,11 @@ export async function saveOriginalFile(
   await fs.writeFile(full, buf);
   return path.relative(process.cwd(), full).replace(/\\/g, "/");
 }
+
+// 보관된 원본 파일을 다시 읽는다(재변환용). stored_path 는 cwd 기준 상대경로.
+export async function readOriginalFile(storedPath: string): Promise<Buffer> {
+  const full = path.isAbsolute(storedPath)
+    ? storedPath
+    : path.join(process.cwd(), storedPath);
+  return fs.readFile(full);
+}

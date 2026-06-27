@@ -1,12 +1,14 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { listMaterials, getMaterialStats } from "@/lib/db/materials";
+import { getTrainingStats } from "@/lib/db/training";
 import { getConsultations } from "@/lib/db/consultations";
 import { getClients } from "@/lib/data";
 import { displayStatus, STATUS_META } from "@/lib/materials-status";
 import { formatDateTime } from "@/lib/utils";
 import MaterialUploadForm from "./MaterialUploadForm";
 import DeleteMaterialButton from "./DeleteMaterialButton";
+import ReconvertMaterialButton from "./ReconvertMaterialButton";
 import ConsultationInputForm from "./ConsultationInputForm";
 import { removeConsultation } from "./consultation-actions";
 
@@ -24,8 +26,9 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 export default async function MaterialsPage() {
-  const [stats, materials, consultations, clients] = await Promise.all([
+  const [stats, training, materials, consultations, clients] = await Promise.all([
     getMaterialStats(),
+    getTrainingStats(),
     listMaterials(),
     getConsultations(),
     getClients(),
@@ -54,6 +57,19 @@ export default async function MaterialsPage() {
         <Stat label="변환중" value={stats.converting} />
         <Stat label="변환실패" value={stats.failed} />
         <Stat label="확정" value={stats.confirmed} />
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center gap-6 text-sm">
+        <span className="font-semibold">🧠 AI 학습 데이터</span>
+        <span className="text-amber-700">
+          후보 <b className="tabular-nums">{training.candidates.toLocaleString()}</b>
+        </span>
+        <span className="text-emerald-700">
+          승격(확정) <b className="tabular-nums">{training.confirmed.toLocaleString()}</b>
+        </span>
+        <span className="text-slate-400 text-xs ml-auto">
+          확정한 데이터만 학습에 사용됩니다(원본은 별도 보관).
+        </span>
       </div>
 
       <section>
@@ -103,7 +119,10 @@ export default async function MaterialsPage() {
                       {inner}
                     </div>
                   )}
-                  <div className="pr-2">
+                  <div className="pr-2 flex items-center">
+                    {ds === "convert_failed" && (
+                      <ReconvertMaterialButton materialId={m.id} filename={m.filename} />
+                    )}
                     <DeleteMaterialButton materialId={m.id} filename={m.filename} />
                   </div>
                 </div>

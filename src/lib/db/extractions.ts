@@ -1,6 +1,7 @@
 // conversation_extractions 접근 계층 — AI 자동추출 + 직원 수정 + 변경이력.
 //   원본(raw_messages)은 건드리지 않는다. parsed_messages 에서 대화 원문을 만들어 AI에 넘긴다.
 import { sql, resolveAgentId } from "./client";
+import { promoteConversationTraining } from "./training";
 import {
   extractConsultation,
   FIELD_KEYS,
@@ -260,6 +261,8 @@ export async function confirmExtraction(
     update conversation_extractions set
       status='confirmed', reviewed_by=${by}, reviewed_at=now(), updated_by=${by}
     where conversation_id=${conversationId} and is_active`;
+  // 확정 = 이 대화의 학습 후보(qa_pair·transcript)를 'confirmed'(학습데이터)로 승격.
+  await promoteConversationTraining(conversationId, by);
 }
 
 // 변경 이력(audit_logs) — 누가 언제 무엇을 바꿨나

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import {
   createMaterial,
   convertMaterial,
+  reconvertMaterial,
   deactivateMaterial,
 } from "@/lib/db/materials";
 import { detectMaterial, SUPPORTED_EXTENSIONS } from "@/lib/convert/detect";
@@ -76,6 +77,34 @@ export async function uploadMaterialAction(formData: FormData): Promise<UploadMa
     };
   } catch (e) {
     return { ok: false, filename: file.name, message: `업로드 실패: ${(e as Error).message}` };
+  }
+}
+
+export interface ReconvertMaterialResult {
+  ok: boolean;
+  message: string;
+  conversationId?: string; // 변환 성공 시 자동추출 대상
+  conversionError?: string;
+}
+
+// '변환실패' 자료 다시 변환(원본 보관본 사용). 성공 시 conversationId 로 추출은 클라이언트가 이어서 실행.
+export async function reconvertMaterialAction(
+  materialId: string,
+): Promise<ReconvertMaterialResult> {
+  if (!materialId) return { ok: false, message: "잘못된 요청입니다." };
+  try {
+    const r = await reconvertMaterial(materialId, ACTOR);
+    revalidatePath("/chatlogs");
+    if (!r.ok || !r.material) {
+      return { ok: false, message: r.message, conversionError: r.material?.conversion_error ?? undefined };
+    }
+    return {
+      ok: true,
+      message: "변환 완료",
+      conversationId: r.material.conversation_id ?? undefined,
+    };
+  } catch (e) {
+    return { ok: false, message: `다시 변환 실패: ${(e as Error).message}` };
   }
 }
 

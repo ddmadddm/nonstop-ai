@@ -5,10 +5,11 @@
 import { createHash } from "node:crypto";
 import { sql, resolveAgentId } from "./client";
 import { importChatlog } from "./chatlogs";
-import { saveOriginalFile } from "@/lib/storage";
+import { saveOriginalFile, readOriginalFile } from "@/lib/storage";
 import { detectMaterial, type MaterialKind } from "@/lib/convert/detect";
 import { getSttProvider, isSttConfigured } from "@/lib/convert/stt";
 import { ocrImage, ocrPdf } from "@/lib/convert/ocr";
+import { ingestTranscriptCandidate } from "./training";
 
 function sha256(b: Buffer): string {
   return createHash("sha256").update(b).digest("hex");
@@ -179,6 +180,8 @@ export async function convertMaterial(
           conversion_ms=${Date.now() - t0}, conversation_id=${convId},
           conversion_error=null, updated_by=${by}
       where id=${material.id} and is_active`;
+    // STT/OCR 변환 원문을 학습 '후보'로 자동 적재(확정 시 승격). 원본 보관과 분리된 파생 계층.
+    await ingestTranscriptCandidate({ conversationId: convId, materialId: material.id, text, by });
     await logConversion(material.id, material.kind, true, model, Date.now() - t0, text.length, null, by);
     return { ...material, status: "converted", conversation_id: convId, conversion_error: null };
   } catch (e) {
@@ -187,6 +190,47 @@ export async function convertMaterial(
     await logConversion(material.id, material.kind, false, null, Date.now() - t0, null, msg, by);
     return { ...material, status: "convert_failed", conversion_error: msg };
   }
+}
+
+// 3) 재변환 — '변환실패' 자료를 보관된 원본으로 다시 변환한다.
+//   주 용도: STT 키(.env)를 나중에 채운 뒤 오디오 자료를 재업로드 없이 변환.
+//   원본은 stored_path 에 그대로 보관돼 있으므로 그 바이트로 convertMaterial 재실행.
+export interface ReconvertResult {
+  ok: boolean;
+  message: string;
+  material?: Material;
+}
+
+export async function reconvertMaterial(
+  materialId: string,
+  byName?: string,
+): Promise<ReconvertResult> {
+  const [row] = await sql<(Record<string, unknown> & { stored_path: string | null })[]>`
+    select id, filename, file_type, kind, status, conversion_error, conversation_id, stored_path
+    from consultation_materials
+    where id=${materialId} and is_active`;
+  if (!row) return { ok: false, message: "존재하지 않거나 이미 삭제된 자료입니다." };
+  if (row.status !== "convert_failed")
+    return { ok: false, message: "변환실패 상태인 자료만 다시 변환할 수 있습니다." };
+  if (!row.stored_path)
+    return { ok: false, message: "원본 파일 경로가 없어 다시 변환할 수 없습니다." };
+
+  let buffer: Buffer;
+  try {
+    buffer = await readOriginalFile(row.stored_path as string);
+  } catch {
+    return { ok: false, message: "보관된 원본 파일을 찾을 수 없습니다(.data/uploads)." };
+  }
+
+  const material = await convertMaterial(rowToMaterial(row), buffer, byName);
+  return {
+    ok: material.status === "converted",
+    message:
+      material.status === "converted"
+        ? "변환 완료"
+        : material.conversion_error ?? "변환 실패",
+    material,
+  };
 }
 
 // ── 삭제 = 비활성화(④) ────────────────────────────────────────────────

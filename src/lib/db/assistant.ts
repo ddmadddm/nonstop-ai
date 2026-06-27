@@ -106,7 +106,7 @@ export async function retrieveContext(
            similarity(coalesce(t.input_text, ''), ${q}) as score
     from ai_training_data t
     join conversations c on c.id = t.conversation_id and c.is_active
-    where t.is_active and t.kind = 'qa_pair'
+    where t.is_active and t.kind = 'qa_pair' and t.status = 'confirmed'
       and t.input_text is not null
       and t.input_text ilike any(${patterns})
     order by score desc
