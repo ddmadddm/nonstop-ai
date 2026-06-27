@@ -2,8 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDraftDetail } from "@/lib/db/assistant";
 import type { ExtractionAddresses } from "@/lib/db/addresses";
+import type { PriceDraft } from "@/app/(app)/assistant/types";
 import { formatDateTime } from "@/lib/utils";
 import AddressInternalCard from "@/components/AddressInternalCard";
+import PriceDraftCard from "@/components/PriceDraftCard";
 
 export const dynamic = "force-dynamic";
 
@@ -109,6 +111,9 @@ export default async function DraftDetailPage({
       <AddressInternalCard
         addresses={(d.address_conversion as unknown as ExtractionAddresses | null) ?? null}
       />
+
+      {/* 요금 초안 — 직원 확인용 */}
+      <PriceDraftCard price={(d.price_draft as unknown as PriceDraft | null) ?? null} />
 
       {/* 수정본이 있으면 AI 원본 초안도 함께(비교/학습용) */}
       {d.answer_final && d.answer_draft && d.answer_final !== d.answer_draft && (

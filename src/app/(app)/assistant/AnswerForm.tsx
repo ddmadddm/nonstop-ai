@@ -6,6 +6,7 @@ import { generateAnswerAction, searchClientsAction, saveAnswerEditAction } from 
 import { MODE_LABEL, type AnswerActionResult, type ClientMode } from "./types";
 import type { ClientSearchHit } from "@/lib/db/clients";
 import AddressInternalCard from "@/components/AddressInternalCard";
+import PriceDraftCard from "@/components/PriceDraftCard";
 
 const MODES: { value: ClientMode; label: string; hint: string }[] = [
   { value: "auto", label: "자동판단", hint: "AI가 거래처 인식 후 결정" },
@@ -408,6 +409,9 @@ export default function AnswerForm() {
           {res.addressConversion && (
             <AddressInternalCard addresses={res.addressConversion} />
           )}
+
+          {/* ②-3 요금 초안 — 직원 확인용 */}
+          {res.priceDraft && <PriceDraftCard price={res.priceDraft} />}
 
           {/* ③ 참고한 과거 상담 출처 */}
           <div className="rounded-xl border border-slate-200 bg-white">

@@ -4,6 +4,19 @@
 import type { ExtractionFields, FieldKey } from "@/lib/ai/extract";
 import type { ExtractionAddresses } from "@/lib/db/addresses";
 
+// 요금 초안(직원 확인용) — 논사원 답변에 첨부.
+export interface PriceDraft {
+  suggestedPrice: number | null;
+  selectedRuleType: string; // client_rate | client_rule | common_manual | ai_estimate
+  basePrice: number | null;
+  surchargeTotal: number;
+  discountAmount: number;
+  confidence: number;
+  requiresReview: boolean;
+  warnings: string[];
+  source: string;
+}
+
 // 거래처 구분(라디오) — 직원 선택값
 export type ClientMode = "auto" | "general" | "key_client" | "new_candidate";
 export type ResolvedMode = Exclude<ClientMode, "auto">;
@@ -50,4 +63,5 @@ export interface AnswerActionResult {
   recognition?: Recognition;
   basis?: string[]; // 참고한 근거 라벨
   addressConversion?: ExtractionAddresses | null; // 출발/도착 주소 변환(신/구/가격표)
+  priceDraft?: PriceDraft | null; // 요금 초안(직원 확인용)
 }

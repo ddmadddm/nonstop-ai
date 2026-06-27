@@ -13,6 +13,7 @@ import { getClientKnowledge, type ClientKnowledge } from "@/lib/db/knowledge";
 import { getClient, searchClients, type ClientSearchHit } from "@/lib/db/clients";
 import { resolveAddressPair } from "@/lib/db/addresses";
 import { getClientRulesText } from "@/lib/db/client-policy";
+import { estimatePrice } from "@/lib/pricing/estimate";
 import { getFaqs } from "@/lib/data";
 import { getActorName } from "@/lib/auth";
 import type { Faq } from "@/lib/types";
@@ -22,6 +23,7 @@ import type {
   Recognition,
   AnswerSource,
   AnswerActionResult,
+  PriceDraft,
 } from "./types";
 
 // 타입/상수(MODE_LABEL)는 ./types 로 이동했다.
@@ -111,6 +113,26 @@ export async function generateAnswerAction(
     // 3-1) 출발/도착지 주소 변환(신/구/가격표) — 직원 확인용 내부 정보. best-effort.
     const addressConversion = await resolveAddressPair(f.origin, f.destination).catch(() => null);
 
+    // 3-2) 요금 초안 — 거래처 단가표 우선 → 공통 매뉴얼. 확정 아님, 직원 확인용. best-effort.
+    let priceDraft: PriceDraft | null = null;
+    if (f.vehicle_type || f.origin || f.destination) {
+      const est = await estimatePrice({
+        clientId: matched?.id ?? null,
+        vehicleType: f.vehicle_type,
+        originRaw: f.origin, destinationRaw: f.destination,
+        originPricingArea: addressConversion?.origin.pricing_area ?? null,
+        destinationPricingArea: addressConversion?.destination.pricing_area ?? null,
+        serviceType: f.consultation_type,
+        sourceType: "assistant",
+        byName: actor,
+      }).catch(() => null);
+      if (est) priceDraft = {
+        suggestedPrice: est.suggestedPrice, selectedRuleType: est.selectedRuleType, basePrice: est.basePrice,
+        surchargeTotal: est.surchargeTotal, discountAmount: est.discountAmount, confidence: est.confidence,
+        requiresReview: est.requiresReview, warnings: est.warnings, source: est.source,
+      };
+    }
+
     // 4) 최종 구분(자동판단이면 추출 결과로 재분류)
     let resolvedMode: ResolvedMode;
     if (requestedMode !== "auto") {
@@ -181,6 +203,7 @@ export async function generateAnswerAction(
       managerName: f.manager_name,
       phone: f.phone,
       addressConversion,
+      priceDraft,
     });
 
     // 8) 근거 라벨
@@ -221,6 +244,7 @@ export async function generateAnswerAction(
       recognition,
       basis,
       addressConversion,
+      priceDraft,
     };
   } catch (e) {
     return { ok: false, message: `답변 생성 실패: ${(e as Error).message}` };

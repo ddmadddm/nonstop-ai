@@ -200,6 +200,7 @@ export interface SaveDraftInput {
   managerName?: string | null;
   phone?: string | null;
   addressConversion?: unknown | null; // 주소 변환 스냅샷(신/구/가격표)
+  priceDraft?: unknown | null; // 요금 초안 스냅샷
 }
 
 export async function saveDraft(input: SaveDraftInput): Promise<string> {
@@ -208,7 +209,7 @@ export async function saveDraft(input: SaveDraftInput): Promise<string> {
     insert into assistant_drafts
       (question, answer_draft, extracted, confidence, used_sources, ai_model,
        requested_mode, client_mode, recognized_client_id, recognition_confidence,
-       client_name, manager_name, phone, address_conversion,
+       client_name, manager_name, phone, address_conversion, price_draft,
        status, created_by, updated_by)
     values (${input.question}, ${input.answerDraft},
             ${sql.json({ ...input.extracted } as Record<string, string | boolean | null>)},
@@ -219,6 +220,7 @@ export async function saveDraft(input: SaveDraftInput): Promise<string> {
             ${input.recognitionConfidence ?? null},
             ${input.clientName ?? null}, ${input.managerName ?? null}, ${input.phone ?? null},
             ${input.addressConversion ? sql.json(input.addressConversion as Parameters<typeof sql.json>[0]) : null},
+            ${input.priceDraft ? sql.json(input.priceDraft as Parameters<typeof sql.json>[0]) : null},
             'draft', ${by}, ${by})
     returning id`;
   return row.id;
@@ -322,6 +324,7 @@ export interface DraftDetail extends DraftRow {
   ai_model: string | null;
   created_by_name: string | null;
   address_conversion: Record<string, unknown> | null;
+  price_draft: Record<string, unknown> | null;
 }
 
 // ── 거래처 상담이력 — 이 거래처로 인식된 논사원 답변 기록 ─────────────
@@ -351,7 +354,7 @@ export async function getDraftDetail(id: string): Promise<DraftDetail | null> {
     select d.id, d.created_at, d.requested_mode, d.client_mode, d.client_name, d.manager_name,
            d.phone, d.recognition_confidence, d.question, d.answer_draft, d.answer_final, d.status,
            d.recognized_client_id, c.name as recognized_client_name,
-           d.extracted, d.confidence, d.used_sources, d.ai_model, d.address_conversion,
+           d.extracted, d.confidence, d.used_sources, d.ai_model, d.address_conversion, d.price_draft,
            a.name as created_by_name
     from assistant_drafts d
     left join clients c on c.id = d.recognized_client_id
