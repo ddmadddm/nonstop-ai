@@ -357,6 +357,9 @@ export default function AnswerForm() {
             )}
           </div>
 
+          {/* ①-2 요금 초안 — 1차 답변문 바로 아래(직원 확인·수정) */}
+          {res.priceDraft && <PriceDraftCard price={res.priceDraft} draftId={res.draftId} />}
+
           {/* ② 질문에서 파악한 배차 항목 */}
           <div className="rounded-xl border border-slate-200 bg-white">
             <div className="px-4 py-2 border-b border-slate-100">
@@ -409,9 +412,6 @@ export default function AnswerForm() {
           {res.addressConversion && (
             <AddressInternalCard addresses={res.addressConversion} />
           )}
-
-          {/* ②-3 요금 초안 — 직원 확인·수정 */}
-          {res.priceDraft && <PriceDraftCard price={res.priceDraft} draftId={res.draftId} />}
 
           {/* ③ 참고한 과거 상담 출처 */}
           <div className="rounded-xl border border-slate-200 bg-white">

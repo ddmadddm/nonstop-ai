@@ -38,6 +38,8 @@ export default async function AssistantPage({
     keyword: sp.keyword,
   };
   const { items, total } = await searchDrafts(filters, page, PAGE_SIZE);
+  // 페이지 이동/필터가 걸리면 모아보기를 펼친 상태로 유지.
+  const expanded = page > 1 || FILTER_KEYS.some((k) => sp[k]);
 
   const hrefFor = (p: number) => {
     const q = new URLSearchParams();
@@ -62,15 +64,15 @@ export default async function AssistantPage({
 
       <AnswerForm />
 
-      {/* 최근 생성한 답변 — 검색/필터/페이지네이션 */}
-      <section id="recent" className="space-y-3 scroll-mt-16">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">최근 생성한 답변</span>
-          <span className="text-xs text-slate-400">
-            Total <b className="text-slate-700 tabular-nums">{total.toLocaleString()}</b>건 · 최신순 · {PAGE_SIZE}개씩
+      {/* 최근 생성한 답변 — 리스트로 펼치지 않고 '모아보기'(접힘)로 제공 */}
+      <details id="recent" open={expanded} className="scroll-mt-16 rounded-xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold flex items-center gap-2">
+          📂 최근 생성한 답변 모아보기
+          <span className="text-xs text-slate-400 font-normal">
+            Total <b className="text-slate-700 tabular-nums">{total.toLocaleString()}</b>건 · 클릭하여 펼치기
           </span>
-        </div>
-
+        </summary>
+        <div className="px-4 pb-4 space-y-3 border-t border-slate-100 pt-3">
         <DraftFilters />
 
         <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-50">
@@ -115,7 +117,8 @@ export default async function AssistantPage({
         <div className="flex justify-center">
           <Pagination page={page} total={total} pageSize={PAGE_SIZE} hrefFor={hrefFor} />
         </div>
-      </section>
+        </div>
+      </details>
 
       <p className="text-xs text-slate-400">
         근거가 된 과거 상담은 <Link href="/chatlogs" className="underline">상담자료 업로드</Link> ·{" "}
