@@ -11,6 +11,7 @@ import type {
   MatchCandidate,
 } from "@/lib/db/clients";
 import type { ClientKnowledge } from "@/lib/db/knowledge";
+import { CLIENT_TYPES } from "@/lib/clients-meta";
 import MatchCandidates from "../MatchCandidates";
 import {
   updateClientAction,
@@ -310,6 +311,18 @@ function BillingTab({
           <input name="name" required defaultValue={client.name} className={`mt-1 ${input}`} />
         </label>
         <label className={labelCls}>
+          <span className={subLabel}>거래처 유형</span>
+          <select
+            name="client_type"
+            defaultValue={client.client_type}
+            className={`mt-1 ${input} bg-white`}
+          >
+            {CLIENT_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+        <label className={labelCls}>
           <span className={subLabel}>사업자번호</span>
           <input name="business_no" defaultValue={client.business_no ?? ""} className={`mt-1 ${input}`} />
         </label>
@@ -441,6 +454,11 @@ function ContactItem({
             </span>
           )}
           {contact.title && <span className="text-xs text-slate-400">{contact.title}</span>}
+          {contact.kakao_display_name && (
+            <span className="text-[11px] rounded-full bg-amber-100 text-amber-700 px-2 py-0.5">
+              카톡 {contact.kakao_display_name}
+            </span>
+          )}
         </div>
         <div className="text-xs text-slate-500">
           {[contact.phone, contact.email].filter(Boolean).join(" · ")}
@@ -515,6 +533,15 @@ function ContactForm({
         <label className={labelCls}>
           <span className={subLabel}>이메일</span>
           <input name="email" defaultValue={contact?.email ?? ""} className={`mt-1 ${input}`} />
+        </label>
+        <label className={labelCls}>
+          <span className={subLabel}>카카오 표시명</span>
+          <input
+            name="kakao_display_name"
+            defaultValue={contact?.kakao_display_name ?? ""}
+            placeholder="오픈톡/채널 닉네임"
+            className={`mt-1 ${input}`}
+          />
         </label>
       </div>
       <label className="flex items-center gap-2 text-sm">

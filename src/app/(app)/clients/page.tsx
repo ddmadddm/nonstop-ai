@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listClients, listPendingCandidates } from "@/lib/db/clients";
+import { CLIENT_TYPE_BADGE, type ClientType } from "@/lib/clients-meta";
 import NewClientForm from "./NewClientForm";
 import MatchCandidates from "./MatchCandidates";
 
@@ -39,8 +40,17 @@ export default async function ClientsPage() {
             className="rounded-xl border border-slate-200 bg-white p-4 hover:border-slate-400"
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="font-semibold">{c.name}</span>
-              <div className="flex items-center gap-1 text-[11px]">
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="font-semibold truncate">{c.name}</span>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] ${
+                    CLIENT_TYPE_BADGE[c.client_type as ClientType] ?? "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {c.client_type}
+                </span>
+              </span>
+              <div className="flex items-center gap-1 text-[11px] shrink-0">
                 <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">
                   담당자 {c.contact_count}
                 </span>

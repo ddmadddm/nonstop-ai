@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClientAction, type ActionResult } from "./actions";
+import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "@/lib/clients-meta";
 
 export default function NewClientForm() {
   const router = useRouter();
@@ -46,6 +47,18 @@ export default function NewClientForm() {
             required
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
+        </label>
+        <label className="text-sm">
+          <span className="text-slate-500">거래처 유형</span>
+          <select
+            name="client_type"
+            defaultValue={DEFAULT_CLIENT_TYPE}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+          >
+            {CLIENT_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
         </label>
         <label className="text-sm">
           <span className="text-slate-500">사업자번호</span>

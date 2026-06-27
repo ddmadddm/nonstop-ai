@@ -6,6 +6,7 @@ import { sql, resolveAgentId } from "./client";
 export interface Client {
   id: string;
   name: string;
+  client_type: string;
   business_no: string | null;
   phone: string | null;
   default_payment_method: string | null;
@@ -20,6 +21,7 @@ export interface Client {
 export interface ClientListItem {
   id: string;
   name: string;
+  client_type: string;
   business_no: string | null;
   phone: string | null;
   default_payment_method: string | null;
@@ -36,6 +38,7 @@ export interface ClientContact {
   title: string | null;
   phone: string | null;
   email: string | null;
+  kakao_display_name: string | null;
   is_primary: boolean;
   memo: string | null;
 }
@@ -90,7 +93,7 @@ const NULL_SEGMENT = "00000000-0000-0000-0000-000000000000";
 // ── 거래처 CRUD ──────────────────────────────────────────────────────
 export async function listClients(): Promise<ClientListItem[]> {
   return sql<ClientListItem[]>`
-    select c.id, c.name, c.business_no, c.phone,
+    select c.id, c.name, c.client_type, c.business_no, c.phone,
            c.default_payment_method, c.default_vehicle_type, c.memo,
            (select count(*)::int from client_contacts cc
               where cc.client_id = c.id and cc.is_active) as contact_count,
@@ -135,7 +138,7 @@ export async function searchClients(query: string): Promise<ClientSearchHit[]> {
 
 export async function getClient(id: string): Promise<Client | null> {
   const rows = await sql<Client[]>`
-    select c.id, c.name, c.business_no, c.phone,
+    select c.id, c.name, c.client_type, c.business_no, c.phone,
            c.default_payment_method, c.default_vehicle_type,
            c.frequent_vehicle_types, c.fare_terms, c.memo,
            c.default_origin_address_id, a.label as default_origin_label
@@ -147,6 +150,7 @@ export async function getClient(id: string): Promise<Client | null> {
 
 export interface ClientInput {
   name: string;
+  client_type?: string | null;
   business_no?: string | null;
   phone?: string | null;
   default_payment_method?: string | null;
@@ -160,10 +164,11 @@ export async function createClient(input: ClientInput, byName?: string): Promise
   const by = await resolveAgentId(byName);
   const [row] = await sql<{ id: string }[]>`
     insert into clients
-      (name, business_no, phone, default_payment_method, default_vehicle_type,
+      (name, client_type, business_no, phone, default_payment_method, default_vehicle_type,
        frequent_vehicle_types, fare_terms, memo, created_by, updated_by)
     values
-      (${input.name}, ${input.business_no ?? null}, ${input.phone ?? null},
+      (${input.name}, coalesce(${input.client_type ?? null}, '일반거래처'),
+       ${input.business_no ?? null}, ${input.phone ?? null},
        ${input.default_payment_method ?? null}, ${input.default_vehicle_type ?? null},
        ${input.frequent_vehicle_types ?? []}, ${input.fare_terms ?? null},
        ${input.memo ?? null}, ${by}, ${by})
@@ -179,7 +184,9 @@ export async function updateClient(
   const by = await resolveAgentId(byName);
   await sql`
     update clients set
-      name=${input.name}, business_no=${input.business_no ?? null},
+      name=${input.name},
+      client_type=coalesce(${input.client_type ?? null}, client_type),
+      business_no=${input.business_no ?? null},
       phone=${input.phone ?? null},
       default_payment_method=${input.default_payment_method ?? null},
       default_vehicle_type=${input.default_vehicle_type ?? null},
@@ -208,7 +215,7 @@ export async function setDefaultOrigin(
 // ── 담당자 ───────────────────────────────────────────────────────────
 export async function listContacts(clientId: string): Promise<ClientContact[]> {
   return sql<ClientContact[]>`
-    select id, client_id, name, title, phone, email, is_primary, memo
+    select id, client_id, name, title, phone, email, kakao_display_name, is_primary, memo
     from client_contacts
     where client_id=${clientId} and is_active
     order by is_primary desc, name`;
@@ -219,6 +226,7 @@ export interface ContactInput {
   title?: string | null;
   phone?: string | null;
   email?: string | null;
+  kakao_display_name?: string | null;
   is_primary?: boolean;
   memo?: string | null;
 }
@@ -232,10 +240,11 @@ export async function createContact(
   if (input.is_primary) await clearPrimaryContact(clientId, by);
   const [row] = await sql<{ id: string }[]>`
     insert into client_contacts
-      (client_id, name, title, phone, email, is_primary, memo, created_by, updated_by)
+      (client_id, name, title, phone, email, kakao_display_name, is_primary, memo, created_by, updated_by)
     values
       (${clientId}, ${input.name}, ${input.title ?? null}, ${input.phone ?? null},
-       ${input.email ?? null}, ${input.is_primary ?? false}, ${input.memo ?? null},
+       ${input.email ?? null}, ${input.kakao_display_name ?? null},
+       ${input.is_primary ?? false}, ${input.memo ?? null},
        ${by}, ${by})
     returning id`;
   return row.id;
@@ -253,7 +262,8 @@ export async function updateContact(
   await sql`
     update client_contacts set
       name=${input.name}, title=${input.title ?? null}, phone=${input.phone ?? null},
-      email=${input.email ?? null}, is_primary=${input.is_primary ?? false},
+      email=${input.email ?? null}, kakao_display_name=${input.kakao_display_name ?? null},
+      is_primary=${input.is_primary ?? false},
       memo=${input.memo ?? null}, updated_by=${by}
     where id=${id} and is_active`;
 }

@@ -53,6 +53,7 @@ export async function createClientAction(fd: FormData): Promise<ActionResult> {
     const id = await createClient(
       {
         name,
+        client_type: str(fd, "client_type"),
         business_no: str(fd, "business_no"),
         phone: str(fd, "phone"),
         default_payment_method: str(fd, "default_payment_method"),
@@ -81,6 +82,7 @@ export async function updateClientAction(
       id,
       {
         name,
+        client_type: str(fd, "client_type"),
         business_no: str(fd, "business_no"),
         phone: str(fd, "phone"),
         default_payment_method: str(fd, "default_payment_method"),
@@ -137,6 +139,7 @@ export async function createContactAction(
         title: str(fd, "title"),
         phone: str(fd, "phone"),
         email: str(fd, "email"),
+        kakao_display_name: str(fd, "kakao_display_name"),
         is_primary: bool(fd, "is_primary"),
         memo: str(fd, "memo"),
       },
@@ -164,6 +167,7 @@ export async function updateContactAction(
         title: str(fd, "title"),
         phone: str(fd, "phone"),
         email: str(fd, "email"),
+        kakao_display_name: str(fd, "kakao_display_name"),
         is_primary: bool(fd, "is_primary"),
         memo: str(fd, "memo"),
       },
