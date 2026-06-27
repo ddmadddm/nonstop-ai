@@ -8,8 +8,7 @@ import {
   deactivateMaterial,
 } from "@/lib/db/materials";
 import { detectMaterial, SUPPORTED_EXTENSIONS } from "@/lib/convert/detect";
-
-const ACTOR = "오현미"; // TODO: 로그인(Supabase Auth) 도입 시 세션 사용자로 교체
+import { getActorName } from "@/lib/auth";
 
 export interface UploadMaterialResult {
   ok: boolean;
@@ -20,15 +19,18 @@ export interface UploadMaterialResult {
   status?: string; // converted | convert_failed
   conversationId?: string; // 변환 성공 시 자동추출 대상
   conversionError?: string;
+  extractionDeferred?: boolean; // 대형 채팅방 등으로 자동 추출 보류
 }
 
 // 단일 파일: 종류 자동판별 → 원본 저장 → 변환(파싱/STT/OCR). 추출은 클라이언트가 이어서 실행.
 export async function uploadMaterialAction(formData: FormData): Promise<UploadMaterialResult> {
   const file = formData.get("file");
-  const createdBy =
+  const formCreatedBy =
     typeof formData.get("created_by") === "string"
       ? (formData.get("created_by") as string).trim() || undefined
       : undefined;
+  // 폼에 등록자가 비어 있으면 로그인 사용자로 자동 기록.
+  const createdBy = formCreatedBy ?? (await getActorName()) ?? undefined;
 
   if (!(file instanceof File) || file.size === 0) {
     return { ok: false, message: "파일이 비어 있습니다.", filename: file instanceof File ? file.name : "" };
@@ -74,6 +76,7 @@ export async function uploadMaterialAction(formData: FormData): Promise<UploadMa
       status: "converted",
       message: created.overwritten ? "덮어쓰기 완료(이전본 보관)" : "변환 완료",
       conversationId: converted.conversation_id ?? undefined,
+      extractionDeferred: converted.extraction_deferred ?? false,
     };
   } catch (e) {
     return { ok: false, filename: file.name, message: `업로드 실패: ${(e as Error).message}` };
@@ -93,7 +96,7 @@ export async function reconvertMaterialAction(
 ): Promise<ReconvertMaterialResult> {
   if (!materialId) return { ok: false, message: "잘못된 요청입니다." };
   try {
-    const r = await reconvertMaterial(materialId, ACTOR);
+    const r = await reconvertMaterial(materialId, (await getActorName()) ?? undefined);
     revalidatePath("/chatlogs");
     if (!r.ok || !r.material) {
       return { ok: false, message: r.message, conversionError: r.material?.conversion_error ?? undefined };
@@ -119,7 +122,7 @@ export async function deleteMaterialAction(
 ): Promise<DeleteMaterialResult> {
   if (!materialId) return { ok: false, message: "잘못된 요청입니다." };
   try {
-    const r = await deactivateMaterial(materialId, ACTOR);
+    const r = await deactivateMaterial(materialId, (await getActorName()) ?? undefined);
     if (r.ok) {
       revalidatePath("/chatlogs");
       revalidatePath("/conversations");

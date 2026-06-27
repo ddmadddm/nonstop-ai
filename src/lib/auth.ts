@@ -70,6 +70,13 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   return { authUid: user.id, email: user.email ?? null, agent };
 });
 
+// 현재 로그인 직원 이름 — 서버 액션/페이지의 등록자·검수자(created_by/updated_by) 기본값.
+//   미인증/미상이면 null(호출부에서 적절히 처리). 로그인 보류(dev) 시 대표/관리자 이름.
+export async function getActorName(): Promise<string | null> {
+  const u = await getCurrentUser();
+  return u?.agent?.name ?? null;
+}
+
 // 유효한 직원만 통과. 시스템 계정/비활성/미등록은 차단(로그인 화면으로).
 export async function requireAgent(): Promise<CurrentUser & { agent: SessionAgent }> {
   const u = await getCurrentUser();

@@ -4,6 +4,7 @@ import { listMaterials, getMaterialStats } from "@/lib/db/materials";
 import { getTrainingStats } from "@/lib/db/training";
 import { getConsultations } from "@/lib/db/consultations";
 import { getClients } from "@/lib/data";
+import { getActorName } from "@/lib/auth";
 import { displayStatus, STATUS_META } from "@/lib/materials-status";
 import { formatDateTime } from "@/lib/utils";
 import MaterialUploadForm from "./MaterialUploadForm";
@@ -26,13 +27,15 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 export default async function MaterialsPage() {
-  const [stats, training, materials, consultations, clients] = await Promise.all([
+  const [stats, training, materials, consultations, clients, actorName] = await Promise.all([
     getMaterialStats(),
     getTrainingStats(),
     listMaterials(),
     getConsultations(),
     getClients(),
+    getActorName(),
   ]);
+  const createdBy = actorName ?? "";
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl">
@@ -50,7 +53,7 @@ export default async function MaterialsPage() {
       </div>
 
       <h2 className="text-sm font-semibold">📁 파일 업로드</h2>
-      <MaterialUploadForm defaultCreatedBy="오현미" />
+      <MaterialUploadForm defaultCreatedBy={createdBy} />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Stat label="업로드 자료" value={stats.total} />
@@ -145,7 +148,7 @@ export default async function MaterialsPage() {
 
         <ConsultationInputForm
           clientNames={clients.map((c) => c.name)}
-          defaultCreatedBy="오현미"
+          defaultCreatedBy={createdBy}
         />
 
         <div>

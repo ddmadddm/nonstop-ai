@@ -133,6 +133,55 @@ export async function retrieveContext(
   return { query: q, keywords: kw, snippets, examples, extractions, total, limit };
 }
 
+// ── 거래처 인식 — 질문 텍스트에서 기존 거래처를 찾는다(결정적, AI 비용 없음) ──
+//   ① 연락처(숫자만 비교)가 거래처/담당자 전화와 일치 ② 거래처명이 질문에 그대로 등장.
+export interface ClientMatch {
+  id: string;
+  name: string;
+  how: "phone" | "name" | "manual";
+  score: number;
+}
+export async function findClientInText(text: string): Promise<ClientMatch | null> {
+  const rows = await sql<ClientMatch[]>`
+    select id, name, how, score from (
+      select c.id, c.name, 'phone' as how, 1.0::float as score
+      from clients c
+      where c.is_active and c.phone is not null and length(regexp_replace(c.phone,'[^0-9]','','g')) >= 8
+        and regexp_replace(${text},'[^0-9]','','g') ilike '%'||regexp_replace(c.phone,'[^0-9]','','g')||'%'
+      union all
+      select c.id, c.name, 'phone', 1.0
+      from clients c join client_contacts ct on ct.client_id = c.id
+      where ct.is_active and ct.phone is not null and length(regexp_replace(ct.phone,'[^0-9]','','g')) >= 8
+        and regexp_replace(${text},'[^0-9]','','g') ilike '%'||regexp_replace(ct.phone,'[^0-9]','','g')||'%'
+      union all
+      select c.id, c.name, 'name', 0.9
+      from clients c
+      where c.is_active and length(c.name) >= 2 and ${text} ilike '%'||c.name||'%'
+    ) m
+    order by score desc limit 1`;
+  return rows[0] ?? null;
+}
+
+export interface SaveProspectInput {
+  name: string | null;
+  manager_name: string | null;
+  phone: string | null;
+  origin: string | null;
+  destination: string | null;
+  question: string;
+  byName?: string;
+}
+export async function saveProspect(input: SaveProspectInput): Promise<string> {
+  const by = await resolveAgentId(input.byName);
+  const [row] = await sql<{ id: string }[]>`
+    insert into client_prospects
+      (name, manager_name, phone, origin, destination, question, source, created_by, updated_by)
+    values (${input.name}, ${input.manager_name}, ${input.phone}, ${input.origin},
+            ${input.destination}, ${input.question}, 'assistant', ${by}, ${by})
+    returning id`;
+  return row.id;
+}
+
 // ── 생성된 1차 답변 기록(기억) ────────────────────────────────────────
 export interface SaveDraftInput {
   question: string;
@@ -142,6 +191,14 @@ export interface SaveDraftInput {
   usedSources: { conversation_id: string; excerpt: string }[];
   model: string;
   byName?: string;
+  // 거래처 인식 결과(검색/표시용)
+  requestedMode?: string | null; // 직원이 선택한 라디오(auto 포함)
+  clientMode?: string | null; // general | key_client | new_candidate (확정)
+  recognizedClientId?: string | null;
+  recognitionConfidence?: number | null;
+  clientName?: string | null;
+  managerName?: string | null;
+  phone?: string | null;
 }
 
 export async function saveDraft(input: SaveDraftInput): Promise<string> {
@@ -149,33 +206,137 @@ export async function saveDraft(input: SaveDraftInput): Promise<string> {
   const [row] = await sql<{ id: string }[]>`
     insert into assistant_drafts
       (question, answer_draft, extracted, confidence, used_sources, ai_model,
+       requested_mode, client_mode, recognized_client_id, recognition_confidence,
+       client_name, manager_name, phone,
        status, created_by, updated_by)
     values (${input.question}, ${input.answerDraft},
             ${sql.json({ ...input.extracted } as Record<string, string | boolean | null>)},
             ${sql.json(input.confidence)},
             ${sql.json(input.usedSources)}, ${input.model},
+            ${input.requestedMode ?? null}, ${input.clientMode ?? null},
+            ${input.recognizedClientId ?? null},
+            ${input.recognitionConfidence ?? null},
+            ${input.clientName ?? null}, ${input.managerName ?? null}, ${input.phone ?? null},
             'draft', ${by}, ${by})
     returning id`;
   return row.id;
 }
 
-export interface DraftListItem {
-  id: string;
-  question: string;
-  answer_draft: string | null;
-  status: string;
-  created_by_name: string | null;
-  created_at: string;
+// ── 1차 답변문 사람 수정본 저장(기억) ─────────────────────────────────
+//   원본 AI 초안(answer_draft)은 보존하고, 상담원이 고친 최종본을 answer_final 에 기억한다.
+//   status 를 'edited' 로 바꿔 목록/상세에 표시하고 추후 학습 신호로 활용한다.
+export async function updateDraftAnswer(
+  id: string,
+  answerFinal: string,
+  byName?: string,
+): Promise<boolean> {
+  const by = await resolveAgentId(byName);
+  const rows = await sql<{ id: string }[]>`
+    update assistant_drafts
+       set answer_final = ${answerFinal},
+           status = case when status = 'sent' then 'sent' else 'edited' end,
+           updated_by = ${by}
+     where id = ${id} and is_active
+    returning id`;
+  return rows.length > 0;
 }
 
-export async function listRecentDrafts(limit = 10): Promise<DraftListItem[]> {
-  const rows = await sql<(Omit<DraftListItem, "created_at"> & { created_at: Date })[]>`
-    select d.id, d.question, d.answer_draft, d.status, d.created_at,
+// ── 답변 검색/리스트(어드민) ──────────────────────────────────────────
+export interface DraftFilters {
+  dateStart?: string | null; // YYYY-MM-DD
+  dateEnd?: string | null;
+  mode?: string | null; // general | key_client | new_candidate
+  clientName?: string | null;
+  managerName?: string | null;
+  phone?: string | null;
+  keyword?: string | null; // 질문/답변
+}
+
+export interface DraftRow {
+  id: string;
+  created_at: string;
+  requested_mode: string | null;
+  client_mode: string | null;
+  client_name: string | null;
+  manager_name: string | null;
+  recognition_confidence: number | null;
+  question: string;
+  answer_draft: string | null;
+  answer_final: string | null; // 사람 수정본(있으면 표시·복사에 우선)
+  status: string;
+  recognized_client_id: string | null;
+}
+
+// 필터 → WHERE 프래그먼트(매 호출마다 새로 생성)
+function draftsWhere(f: DraftFilters) {
+  let w = sql`d.is_active`;
+  if (f.dateStart)
+    w = sql`${w} and (d.created_at at time zone 'Asia/Seoul')::date >= ${f.dateStart}`;
+  if (f.dateEnd)
+    w = sql`${w} and (d.created_at at time zone 'Asia/Seoul')::date <= ${f.dateEnd}`;
+  if (f.mode === "auto") w = sql`${w} and d.requested_mode = 'auto'`;
+  else if (f.mode) w = sql`${w} and d.client_mode = ${f.mode}`;
+  if (f.clientName) w = sql`${w} and d.client_name ilike ${"%" + f.clientName + "%"}`;
+  if (f.managerName) w = sql`${w} and d.manager_name ilike ${"%" + f.managerName + "%"}`;
+  if (f.phone) {
+    const dg = f.phone.replace(/[^0-9]/g, "");
+    if (dg) w = sql`${w} and regexp_replace(coalesce(d.phone,''),'[^0-9]','','g') ilike ${"%" + dg + "%"}`;
+  }
+  if (f.keyword)
+    w = sql`${w} and (d.question ilike ${"%" + f.keyword + "%"} or d.answer_draft ilike ${"%" + f.keyword + "%"})`;
+  return w;
+}
+
+export async function searchDrafts(
+  f: DraftFilters,
+  page = 1,
+  pageSize = 10,
+): Promise<{ items: DraftRow[]; total: number }> {
+  const offset = (Math.max(1, page) - 1) * pageSize;
+  const [rows, [cnt]] = await Promise.all([
+    sql<(Omit<DraftRow, "created_at"> & { created_at: Date })[]>`
+      select d.id, d.created_at, d.requested_mode, d.client_mode, d.client_name, d.manager_name,
+             d.recognition_confidence, d.question, d.answer_draft, d.answer_final, d.status,
+             d.recognized_client_id
+      from assistant_drafts d
+      where ${draftsWhere(f)}
+      order by d.created_at desc
+      limit ${pageSize} offset ${offset}`,
+    sql<{ total: number }[]>`
+      select count(*)::int as total from assistant_drafts d where ${draftsWhere(f)}`,
+  ]);
+  return {
+    items: rows.map((r) => ({ ...r, created_at: r.created_at.toISOString() })),
+    total: cnt?.total ?? 0,
+  };
+}
+
+export interface DraftDetail extends DraftRow {
+  phone: string | null;
+  recognized_client_name: string | null;
+  extracted: Record<string, unknown> | null;
+  confidence: Record<string, number> | null;
+  used_sources: { conversation_id: string; excerpt: string }[];
+  ai_model: string | null;
+  created_by_name: string | null;
+}
+
+export async function getDraftDetail(id: string): Promise<DraftDetail | null> {
+  const rows = await sql<(Omit<DraftDetail, "created_at"> & { created_at: Date })[]>`
+    select d.id, d.created_at, d.requested_mode, d.client_mode, d.client_name, d.manager_name,
+           d.phone, d.recognition_confidence, d.question, d.answer_draft, d.answer_final, d.status,
+           d.recognized_client_id, c.name as recognized_client_name,
+           d.extracted, d.confidence, d.used_sources, d.ai_model,
            a.name as created_by_name
     from assistant_drafts d
+    left join clients c on c.id = d.recognized_client_id
     left join agents a on a.id = d.created_by
-    where d.is_active
-    order by d.created_at desc
-    limit ${limit}`;
-  return rows.map((r) => ({ ...r, created_at: r.created_at.toISOString() }));
+    where d.id = ${id} and d.is_active`;
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    ...r,
+    created_at: r.created_at.toISOString(),
+    used_sources: Array.isArray(r.used_sources) ? r.used_sources : [],
+  };
 }

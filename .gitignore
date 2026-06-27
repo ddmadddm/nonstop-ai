@@ -46,8 +46,11 @@ yarn-error.log*
 
 # 개발 로그/락/임시 스크립트
 dev-server.log
+dev*.log
 .claude/scheduled_tasks.lock
 scripts/_tmp_*.mjs
+scripts/_*.mjs
+scripts/_*.mts
 
 # typescript
 *.tsbuildinfo

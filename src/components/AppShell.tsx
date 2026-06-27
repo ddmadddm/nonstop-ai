@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   { href: "/chatlogs", label: "상담자료 업로드", icon: "🗂️" },
   { href: "/faqs", label: "FAQ 관리", icon: "📚" },
   { href: "/clients", label: "거래처", icon: "🏢" },
+  { href: "/prospects", label: "거래처 후보", icon: "🪪" },
   { href: "/search", label: "상담검색", icon: "🔍" },
   { href: "/staff", label: "직원관리", icon: "👥", adminOnly: true },
   { href: "/settings", label: "설정", icon: "⚙️" },
