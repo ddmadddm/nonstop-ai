@@ -102,8 +102,10 @@ export default async function AssistantPage({
                   </span>
                 </div>
                 <div className="mt-1 text-sm font-medium truncate">{d.question}</div>
-                {d.answer_draft && (
-                  <div className="text-xs text-slate-500 mt-0.5 line-clamp-2">{d.answer_draft}</div>
+                {(d.answer_final ?? d.answer_draft) && (
+                  <div className="text-xs text-slate-500 mt-0.5 line-clamp-2">
+                    {d.answer_final ?? d.answer_draft}
+                  </div>
                 )}
               </Link>
             ))

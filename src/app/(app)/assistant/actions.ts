@@ -4,62 +4,26 @@ import { revalidatePath } from "next/cache";
 import {
   retrieveContext,
   saveDraft,
+  updateDraftAnswer,
   findClientInText,
   saveProspect,
 } from "@/lib/db/assistant";
-import { generateAnswer } from "@/lib/ai/answer";
+import { generateAnswer, normalizeAnswerText } from "@/lib/ai/answer";
 import { getClientKnowledge, type ClientKnowledge } from "@/lib/db/knowledge";
 import { getClient, searchClients, type ClientSearchHit } from "@/lib/db/clients";
 import { getFaqs } from "@/lib/data";
 import { getActorName } from "@/lib/auth";
 import type { Faq } from "@/lib/types";
-import type { ExtractionFields, FieldKey } from "@/lib/ai/extract";
+import type {
+  ClientMode,
+  ResolvedMode,
+  Recognition,
+  AnswerSource,
+  AnswerActionResult,
+} from "./types";
 
-// 거래처 구분(라디오) — 직원 선택값
-export type ClientMode = "auto" | "general" | "key_client" | "new_candidate";
-export type ResolvedMode = Exclude<ClientMode, "auto">;
-
-export const MODE_LABEL: Record<ResolvedMode, string> = {
-  general: "일반 문의",
-  key_client: "주거래처",
-  new_candidate: "신규 거래처 후보",
-};
-
-export interface Recognition {
-  requestedMode: ClientMode;
-  resolvedMode: ResolvedMode;
-  auto: boolean; // 자동판단으로 결정됐는지
-  matchedClientId: string | null;
-  matchedClientName: string | null;
-  matchType: "phone" | "name" | "manual" | null;
-  confidence: number; // 0~1
-  extracted: {
-    client_name: string | null;
-    manager_name: string | null;
-    phone: string | null;
-    origin: string | null;
-    destination: string | null;
-  };
-  prospectSaved: boolean;
-}
-
-export interface AnswerSource {
-  conversation_id: string;
-  excerpt: string;
-  used: boolean;
-}
-
-export interface AnswerActionResult {
-  ok: boolean;
-  message: string;
-  answer?: string;
-  fields?: ExtractionFields;
-  confidence?: Record<FieldKey, number>;
-  sources?: AnswerSource[];
-  matchedTotal?: number;
-  recognition?: Recognition;
-  basis?: string[]; // 참고한 근거 라벨
-}
+// 타입/상수(MODE_LABEL)는 ./types 로 이동했다.
+//   "use server" 파일은 async 함수만 export 할 수 있어 객체 상수를 둘 수 없다.
 
 function renderKnowledge(name: string, k: ClientKnowledge): string {
   const list = (arr: { value: string; count: number }[]) =>
@@ -192,7 +156,7 @@ export async function generateAnswerAction(
         ? 0.5
         : 0.3;
 
-    await saveDraft({
+    const draftId = await saveDraft({
       question: q,
       answerDraft: result.answer_draft,
       extracted: result.fields,
@@ -240,6 +204,7 @@ export async function generateAnswerAction(
     return {
       ok: true,
       message: "1차 답변 생성 완료",
+      draftId,
       answer: result.answer_draft,
       fields: result.fields,
       confidence: result.confidence,
@@ -250,5 +215,26 @@ export async function generateAnswerAction(
     };
   } catch (e) {
     return { ok: false, message: `답변 생성 실패: ${(e as Error).message}` };
+  }
+}
+
+// 상담원이 수정한 1차 답변문 최종본을 저장(기억)한다.
+//   원본 AI 초안은 보존하고 answer_final 에 수정본을 기록, status='edited'.
+export async function saveAnswerEditAction(
+  draftId: string,
+  answer: string,
+): Promise<{ ok: boolean; message: string }> {
+  const text = normalizeAnswerText(answer); // 저장본도 "한 문장 = 한 줄" 동일 규칙 적용
+  if (!draftId) return { ok: false, message: "저장할 답변 기록을 찾지 못했습니다." };
+  if (!text) return { ok: false, message: "답변 내용을 입력해 주세요." };
+  try {
+    const actor = (await getActorName()) ?? undefined;
+    const ok = await updateDraftAnswer(draftId, text, actor);
+    if (!ok) return { ok: false, message: "답변 기록을 찾지 못했습니다." };
+    revalidatePath("/assistant");
+    revalidatePath(`/assistant/${draftId}`);
+    return { ok: true, message: "수정한 답변을 저장했습니다." };
+  } catch (e) {
+    return { ok: false, message: `저장 실패: ${(e as Error).message}` };
   }
 }

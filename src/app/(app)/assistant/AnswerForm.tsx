@@ -2,13 +2,8 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import {
-  generateAnswerAction,
-  searchClientsAction,
-  MODE_LABEL,
-  type AnswerActionResult,
-  type ClientMode,
-} from "./actions";
+import { generateAnswerAction, searchClientsAction, saveAnswerEditAction } from "./actions";
+import { MODE_LABEL, type AnswerActionResult, type ClientMode } from "./types";
 import type { ClientSearchHit } from "@/lib/db/clients";
 
 const MODES: { value: ClientMode; label: string; hint: string }[] = [
@@ -46,6 +41,11 @@ export default function AnswerForm() {
   const [res, setRes] = useState<AnswerActionResult | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // 답변문 수정/저장
+  const [edited, setEdited] = useState(""); // 수정 중인 답변문(초안에서 시작)
+  const [saving, startSave] = useTransition();
+  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // 주거래처 직접 검색/선택
   const [selectedClient, setSelectedClient] = useState<{ id: string; name: string } | null>(null);
   const [cq, setCq] = useState("");
@@ -71,17 +71,35 @@ export default function AnswerForm() {
 
   function submit() {
     setCopied(false);
+    setSaveMsg(null);
     const sel = mode === "key_client" ? selectedClient?.id ?? null : null;
-    startTransition(async () => setRes(await generateAnswerAction(question, mode, sel)));
+    startTransition(async () => {
+      const r = await generateAnswerAction(question, mode, sel);
+      setRes(r);
+      setEdited(r.ok ? r.answer ?? "" : ""); // 생성된 초안을 수정창 기본값으로
+    });
   }
 
   function copyAnswer() {
-    if (!res?.answer) return;
-    navigator.clipboard.writeText(res.answer).then(() => {
+    const text = edited.trim() ? edited : res?.answer ?? "";
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
   }
+
+  function saveEdit() {
+    if (!res?.draftId || !edited.trim()) return;
+    setSaveMsg(null);
+    startSave(async () => {
+      const r = await saveAnswerEditAction(res.draftId!, edited);
+      setSaveMsg({ ok: r.ok, text: r.message });
+    });
+  }
+
+  // 초안 대비 변경 여부(저장 버튼 활성/표시용)
+  const dirty = !!res?.answer && edited.trim() !== (res.answer ?? "").trim();
 
   const conf = res?.confidence ?? {};
   const fields = (res?.fields ?? {}) as Record<string, string | boolean | null>;
@@ -290,23 +308,51 @@ export default function AnswerForm() {
 
       {res?.ok && (
         <>
-          {/* ① 답변문 초안 */}
+          {/* ① 답변문 초안 — 수정/저장/복사 */}
           <div className="rounded-xl border border-slate-200 bg-white">
-            <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2">
-              <span className="text-sm font-semibold">논사원 1차 답변문 (초안)</span>
+            <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-semibold">논사원 1차 답변문 (수정 가능)</span>
               <span className="text-[11px] text-slate-400">
-                검토 후 고객에게 전송하세요
+                내용을 고친 뒤 저장하면 기억합니다
               </span>
-              <button
-                onClick={copyAnswer}
-                className="ml-auto text-xs rounded-lg border border-slate-300 px-2.5 py-1 hover:bg-slate-50"
-              >
-                {copied ? "복사됨 ✓" : "복사"}
-              </button>
+              {dirty && (
+                <span className="text-[11px] text-amber-600">· 수정됨(미저장)</span>
+              )}
+              <div className="ml-auto flex items-center gap-1.5">
+                <button
+                  onClick={saveEdit}
+                  disabled={saving || !res.draftId || !edited.trim() || !dirty}
+                  className="text-xs rounded-lg bg-slate-900 text-white px-3 py-1 disabled:opacity-40"
+                >
+                  {saving ? "저장 중…" : "저장"}
+                </button>
+                <button
+                  onClick={copyAnswer}
+                  className="text-xs rounded-lg border border-slate-300 px-2.5 py-1 hover:bg-slate-50"
+                >
+                  {copied ? "복사됨 ✓" : "복사"}
+                </button>
+              </div>
             </div>
-            <p className="p-4 text-sm whitespace-pre-wrap leading-relaxed">
-              {res.answer}
-            </p>
+            <textarea
+              value={edited}
+              onChange={(e) => {
+                setEdited(e.target.value);
+                if (saveMsg) setSaveMsg(null);
+              }}
+              rows={6}
+              className="w-full resize-y rounded-b-xl px-4 py-3 text-sm leading-relaxed focus:outline-none"
+              placeholder="답변문을 수정할 수 있습니다."
+            />
+            {saveMsg && (
+              <div
+                className={`px-4 pb-3 -mt-1 text-xs ${
+                  saveMsg.ok ? "text-emerald-600" : "text-rose-600"
+                }`}
+              >
+                {saveMsg.text}
+              </div>
+            )}
           </div>
 
           {/* ② 질문에서 파악한 배차 항목 */}

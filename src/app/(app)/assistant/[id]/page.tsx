@@ -87,14 +87,33 @@ export default async function DraftDetailPage({
         <p className="p-4 text-sm whitespace-pre-wrap leading-relaxed">{d.question}</p>
       </div>
 
-      {/* 생성 답변 */}
+      {/* 답변문 — 수정본이 있으면 그것을, 없으면 AI 초안을 표시 */}
       <div className="rounded-xl border border-slate-200 bg-white">
-        <div className="px-4 py-2 border-b border-slate-100 text-sm font-semibold">
-          생성 답변 (초안)
-          {d.ai_model && <span className="ml-2 text-[11px] text-slate-400">{d.ai_model}</span>}
+        <div className="px-4 py-2 border-b border-slate-100 text-sm font-semibold flex items-center gap-2">
+          {d.answer_final ? "답변문 (수정본 저장됨)" : "생성 답변 (초안)"}
+          {d.answer_final && (
+            <span className="text-[11px] rounded bg-emerald-100 text-emerald-700 px-1.5 py-0.5">
+              수정됨
+            </span>
+          )}
+          {d.ai_model && <span className="ml-auto text-[11px] text-slate-400">{d.ai_model}</span>}
         </div>
-        <p className="p-4 text-sm whitespace-pre-wrap leading-relaxed">{d.answer_draft ?? "—"}</p>
+        <p className="p-4 text-sm whitespace-pre-wrap leading-relaxed">
+          {d.answer_final ?? d.answer_draft ?? "—"}
+        </p>
       </div>
+
+      {/* 수정본이 있으면 AI 원본 초안도 함께(비교/학습용) */}
+      {d.answer_final && d.answer_draft && d.answer_final !== d.answer_draft && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60">
+          <div className="px-4 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">
+            AI 원본 초안 (참고)
+          </div>
+          <p className="p-4 text-sm whitespace-pre-wrap leading-relaxed text-slate-500">
+            {d.answer_draft}
+          </p>
+        </div>
+      )}
 
       {/* 참고 근거 */}
       <div className="rounded-xl border border-slate-200 bg-white">

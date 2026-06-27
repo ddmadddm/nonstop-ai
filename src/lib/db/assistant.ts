@@ -222,6 +222,25 @@ export async function saveDraft(input: SaveDraftInput): Promise<string> {
   return row.id;
 }
 
+// ── 1차 답변문 사람 수정본 저장(기억) ─────────────────────────────────
+//   원본 AI 초안(answer_draft)은 보존하고, 상담원이 고친 최종본을 answer_final 에 기억한다.
+//   status 를 'edited' 로 바꿔 목록/상세에 표시하고 추후 학습 신호로 활용한다.
+export async function updateDraftAnswer(
+  id: string,
+  answerFinal: string,
+  byName?: string,
+): Promise<boolean> {
+  const by = await resolveAgentId(byName);
+  const rows = await sql<{ id: string }[]>`
+    update assistant_drafts
+       set answer_final = ${answerFinal},
+           status = case when status = 'sent' then 'sent' else 'edited' end,
+           updated_by = ${by}
+     where id = ${id} and is_active
+    returning id`;
+  return rows.length > 0;
+}
+
 // ── 답변 검색/리스트(어드민) ──────────────────────────────────────────
 export interface DraftFilters {
   dateStart?: string | null; // YYYY-MM-DD
@@ -243,6 +262,7 @@ export interface DraftRow {
   recognition_confidence: number | null;
   question: string;
   answer_draft: string | null;
+  answer_final: string | null; // 사람 수정본(있으면 표시·복사에 우선)
   status: string;
   recognized_client_id: string | null;
 }
@@ -276,7 +296,7 @@ export async function searchDrafts(
   const [rows, [cnt]] = await Promise.all([
     sql<(Omit<DraftRow, "created_at"> & { created_at: Date })[]>`
       select d.id, d.created_at, d.requested_mode, d.client_mode, d.client_name, d.manager_name,
-             d.recognition_confidence, d.question, d.answer_draft, d.status,
+             d.recognition_confidence, d.question, d.answer_draft, d.answer_final, d.status,
              d.recognized_client_id
       from assistant_drafts d
       where ${draftsWhere(f)}
@@ -304,7 +324,7 @@ export interface DraftDetail extends DraftRow {
 export async function getDraftDetail(id: string): Promise<DraftDetail | null> {
   const rows = await sql<(Omit<DraftDetail, "created_at"> & { created_at: Date })[]>`
     select d.id, d.created_at, d.requested_mode, d.client_mode, d.client_name, d.manager_name,
-           d.phone, d.recognition_confidence, d.question, d.answer_draft, d.status,
+           d.phone, d.recognition_confidence, d.question, d.answer_draft, d.answer_final, d.status,
            d.recognized_client_id, c.name as recognized_client_name,
            d.extracted, d.confidence, d.used_sources, d.ai_model,
            a.name as created_by_name
