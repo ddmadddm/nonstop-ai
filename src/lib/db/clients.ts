@@ -54,6 +54,9 @@ export interface ClientAddress {
   usage_type: AddressUsage;
   contact_name: string | null;
   contact_phone: string | null;
+  road_address: string | null; // 신주소(도로명)
+  jibun_address: string | null; // 구주소(지번)
+  pricing_area: string | null; // 가격표 기준 지역
   memo: string | null;
 }
 
@@ -288,7 +291,7 @@ async function clearPrimaryContact(
 export async function listAddresses(clientId: string): Promise<ClientAddress[]> {
   return sql<ClientAddress[]>`
     select id, client_id, label, address, address_detail, usage_type,
-           contact_name, contact_phone, memo
+           contact_name, contact_phone, road_address, jibun_address, pricing_area, memo
     from client_addresses
     where client_id=${clientId} and is_active
     order by label`;
@@ -301,6 +304,9 @@ export interface AddressInput {
   usage_type?: AddressUsage;
   contact_name?: string | null;
   contact_phone?: string | null;
+  road_address?: string | null;
+  jibun_address?: string | null;
+  pricing_area?: string | null;
   memo?: string | null;
 }
 
@@ -313,12 +319,14 @@ export async function createAddress(
   const [row] = await sql<{ id: string }[]>`
     insert into client_addresses
       (client_id, label, address, address_detail, usage_type,
-       contact_name, contact_phone, memo, created_by, updated_by)
+       contact_name, contact_phone, road_address, jibun_address, pricing_area, memo,
+       created_by, updated_by)
     values
       (${clientId}, ${input.label}, ${input.address ?? null},
        ${input.address_detail ?? null}, ${input.usage_type ?? "both"},
        ${input.contact_name ?? null}, ${input.contact_phone ?? null},
-       ${input.memo ?? null}, ${by}, ${by})
+       ${input.road_address ?? null}, ${input.jibun_address ?? null},
+       ${input.pricing_area ?? null}, ${input.memo ?? null}, ${by}, ${by})
     returning id`;
   return row.id;
 }
@@ -336,6 +344,9 @@ export async function updateAddress(
       usage_type=${input.usage_type ?? "both"},
       contact_name=${input.contact_name ?? null},
       contact_phone=${input.contact_phone ?? null},
+      road_address=${input.road_address ?? null},
+      jibun_address=${input.jibun_address ?? null},
+      pricing_area=${input.pricing_area ?? null},
       memo=${input.memo ?? null}, updated_by=${by}
     where id=${id} and is_active`;
 }

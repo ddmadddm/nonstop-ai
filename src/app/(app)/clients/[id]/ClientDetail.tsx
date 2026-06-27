@@ -668,6 +668,12 @@ function AddressItem({
             {[address.contact_name, address.contact_phone].filter(Boolean).join(" · ")}
           </div>
         )}
+        {(address.pricing_area || address.jibun_address) && (
+          <div className="text-[11px] text-slate-400">
+            {address.pricing_area ? `가격표 기준 ${address.pricing_area}` : ""}
+            {address.jibun_address ? ` · 구주소 ${address.jibun_address}` : ""}
+          </div>
+        )}
       </div>
       <div className="flex flex-col items-end gap-1">
         <Msg result={result} />
@@ -786,6 +792,33 @@ function AddressForm({
           />
         </label>
       </div>
+
+      {/* 운임(가격표) 변환 — 신주소/구주소/가격표 기준 지역 */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <div className="text-[11px] font-medium text-slate-500">
+          운임 변환(가격표) — 선택 입력. 저장해두면 상담 주소 변환 시 이 거래처 주소를 우선 매칭합니다.
+        </div>
+        <div className="grid sm:grid-cols-3 gap-2">
+          <label className="block text-xs">
+            <span className={subLabel}>신주소(도로명)</span>
+            <input name="road_address" defaultValue={address?.road_address ?? ""} className={`mt-1 ${input}`} />
+          </label>
+          <label className="block text-xs">
+            <span className={subLabel}>구주소(지번)</span>
+            <input name="jibun_address" defaultValue={address?.jibun_address ?? ""} className={`mt-1 ${input}`} />
+          </label>
+          <label className="block text-xs">
+            <span className={subLabel}>가격표 기준 지역</span>
+            <input
+              name="pricing_area"
+              defaultValue={address?.pricing_area ?? ""}
+              placeholder="예: 인천 중구 항동"
+              className={`mt-1 ${input}`}
+            />
+          </label>
+        </div>
+      </div>
+
       <label className={labelCls}>
         <span className={subLabel}>메모</span>
         <input name="memo" defaultValue={address?.memo ?? ""} className={`mt-1 ${input}`} />
