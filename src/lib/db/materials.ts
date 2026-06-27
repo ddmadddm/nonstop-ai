@@ -351,7 +351,9 @@ export interface MaterialListItem {
   created_by_name: string | null;
 }
 
-export async function listMaterials(): Promise<MaterialListItem[]> {
+// 최신 업로드순. page/pageSize 로 10개씩 페이지네이션(Total 은 getMaterialStats().total).
+export async function listMaterials(page = 1, pageSize = 10): Promise<MaterialListItem[]> {
+  const offset = (Math.max(1, page) - 1) * pageSize;
   const rows = await sql<(Omit<MaterialListItem, "created_at"> & { created_at: Date })[]>`
     select m.id, m.filename, m.file_type, m.kind, m.status, m.conversion_error,
            m.conversation_id, m.created_at, m.is_archive, m.archive_status,
@@ -362,7 +364,8 @@ export async function listMaterials(): Promise<MaterialListItem[]> {
            on e.conversation_id = m.conversation_id and e.is_active
     left join agents a on a.id = m.created_by
     where m.is_active
-    order by m.created_at desc`;
+    order by m.created_at desc
+    limit ${pageSize} offset ${offset}`;
   return rows.map((r) => ({ ...r, created_at: r.created_at.toISOString() }));
 }
 

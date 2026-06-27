@@ -24,9 +24,11 @@ const MODE_OPTIONS: { value: ClientMode; label: string; hint: string }[] = [
 export default function MaterialUploadForm({
   defaultCreatedBy,
   clients = [],
+  staff = [],
 }: {
   defaultCreatedBy?: string;
   clients?: { id: string; name: string }[];
+  staff?: { value: string; label: string }[];
 }) {
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
@@ -140,12 +142,21 @@ export default function MaterialUploadForm({
       <div className="grid sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-sm font-medium mb-1">등록자</label>
-          <input
+          <select
             value={createdBy}
             onChange={(e) => setCreatedBy(e.target.value)}
-            placeholder="업로드한 사람 이름"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+          >
+            {/* 기본값(현재 로그인 사용자)이 목록에 없으면 임시 옵션으로 표시 */}
+            {createdBy && !staff.some((s) => s.value === createdBy) && (
+              <option value={createdBy}>{createdBy}</option>
+            )}
+            {staff.length === 0 && <option value="">직원 없음</option>}
+            {staff.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-slate-400">직원관리에 등록된 직원만 선택할 수 있습니다.</p>
         </div>
       </div>
 

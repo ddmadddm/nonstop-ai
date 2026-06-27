@@ -4,9 +4,11 @@ import { listMaterials, getMaterialStats } from "@/lib/db/materials";
 import { getTrainingStats } from "@/lib/db/training";
 import { getConsultations } from "@/lib/db/consultations";
 import { listClients } from "@/lib/db/clients";
+import { listAgents } from "@/lib/db/agents";
 import { getActorName } from "@/lib/auth";
 import { displayStatus, STATUS_META } from "@/lib/materials-status";
 import { formatDateTime } from "@/lib/utils";
+import Pagination from "@/components/Pagination";
 import MaterialUploadForm from "./MaterialUploadForm";
 import DeleteMaterialButton from "./DeleteMaterialButton";
 import ReconvertMaterialButton from "./ReconvertMaterialButton";
@@ -14,6 +16,15 @@ import ConsultationInputForm from "./ConsultationInputForm";
 import { removeConsultation } from "./consultation-actions";
 
 export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 10;
+
+// 직원 표시 라벨: "김찬주 차장 · 영업/총괄"
+function staffLabel(a: { name: string; position: string | null; department: string | null; role: string | null }): string {
+  const post = a.position ? ` ${a.position}` : "";
+  const dept = a.department ?? a.role ?? "";
+  return `${a.name}${post}${dept ? ` · ${dept}` : ""}`;
+}
 
 const KIND_ICON: Record<string, string> = { chat: "🗂️", audio: "🎙️", image: "🖼️", pdf: "📄" };
 
@@ -26,16 +37,31 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-export default async function MaterialsPage() {
-  const [stats, training, materials, consultations, clients, actorName] = await Promise.all([
+export default async function MaterialsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const sp = await searchParams;
+  const page = Math.max(1, Number(sp.page) || 1);
+
+  const [stats, training, materials, consultations, clients, actorName, agents] = await Promise.all([
     getMaterialStats(),
     getTrainingStats(),
-    listMaterials(),
+    listMaterials(page, PAGE_SIZE),
     getConsultations(),
     listClients(),
     getActorName(),
+    listAgents(),
   ]);
   const createdBy = actorName ?? "";
+  // 등록자 후보 = 직원관리에 등록된 활성 직원(시스템 계정 제외).
+  const staff = agents
+    .filter((a) => a.is_active && !a.is_system)
+    .map((a) => ({ value: a.name, label: staffLabel(a) }));
+  const total = stats.total;
+  const start = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(page * PAGE_SIZE, total);
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl">
@@ -56,6 +82,7 @@ export default async function MaterialsPage() {
       <MaterialUploadForm
         defaultCreatedBy={createdBy}
         clients={clients.map((c) => ({ id: c.id, name: c.name }))}
+        staff={staff}
       />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -79,10 +106,16 @@ export default async function MaterialsPage() {
       </div>
 
       <section>
-        <h2 className="text-sm font-semibold mb-2">
-          상담자료 <span className="text-slate-400">({materials.length}건)</span>
-        </h2>
-        {materials.length === 0 ? (
+        <div className="flex items-baseline gap-2 mb-2 flex-wrap">
+          <h2 className="text-sm font-semibold">
+            상담자료 <span className="text-slate-400">총 {total.toLocaleString()}건</span>
+          </h2>
+          <span className="text-xs text-slate-400">
+            페이지당 {PAGE_SIZE}개 · 현재 {page}페이지
+            {total > 0 ? ` (${start}~${end})` : ""}
+          </span>
+        </div>
+        {total === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-400">
             업로드된 자료가 없습니다.
           </div>
@@ -134,6 +167,18 @@ export default async function MaterialsPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {total > PAGE_SIZE && (
+          <div className="mt-3 flex items-center justify-between">
+            <span className="text-xs text-slate-400">{start}–{end} / {total}</span>
+            <Pagination
+              page={page}
+              total={total}
+              pageSize={PAGE_SIZE}
+              hrefFor={(p) => (p === 1 ? "/chatlogs" : `/chatlogs?page=${p}`)}
+            />
           </div>
         )}
       </section>
