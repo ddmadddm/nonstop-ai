@@ -45,7 +45,7 @@ export default async function ClientDetailPage({
   const clientOptions = all.map((c) => ({ id: c.id, name: c.name }));
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
+    <div className="p-4 sm:p-6 space-y-4 w-full max-w-none">
       <div className="flex items-center gap-2">
         <Link href="/clients" className="text-slate-400 hover:text-slate-900">
           ←
