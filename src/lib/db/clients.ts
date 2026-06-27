@@ -139,6 +139,145 @@ export async function searchClients(query: string): Promise<ClientSearchHit[]> {
     limit 10`;
 }
 
+// ── 거래처 관리 목록(효성형 필터/검색/페이지네이션) ──────────────────
+export type ClientFilter =
+  | "all" | "key" | "normal" | "dormant" | "inactive"
+  | "info_incomplete" | "address_check" | "fare_check";
+
+export interface ManagedClientQuery {
+  filter?: ClientFilter;
+  q?: string;
+  field?: "name" | "manager" | "phone" | "biz_no" | "region" | null;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ManagedClientRow {
+  id: string;
+  name: string;
+  client_type: string;
+  is_active: boolean;
+  primary_contact: string | null;
+  phone: string | null;
+  origin_label: string | null;
+  destination_label: string | null;
+  default_vehicle_type: string | null;
+  default_payment_method: string | null;
+  default_discount_rate: number | null;
+  pricing_area: string | null;
+  last_consult_at: string | null;
+  consult_count: number;
+  knowledge_pct: number;
+  info_incomplete: boolean;
+  address_check: boolean;
+  fare_check: boolean;
+}
+
+export interface ManagedClientResult {
+  items: ManagedClientRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+function managedWhere(query: ManagedClientQuery) {
+  const f = query.filter ?? "all";
+  let w = f === "inactive" ? sql`not c.is_active` : sql`c.is_active`;
+  if (f === "key") w = sql`${w} and c.client_type='주거래처'`;
+  else if (f === "normal") w = sql`${w} and c.client_type='일반거래처'`;
+  else if (f === "dormant") w = sql`${w} and c.client_type='휴면'`;
+  else if (f === "info_incomplete")
+    w = sql`${w} and (c.business_no is null or c.phone is null or c.ceo_name is null)`;
+  else if (f === "address_check")
+    w = sql`${w} and (not exists (select 1 from client_addresses a where a.client_id=c.id and a.is_active)
+      or exists (select 1 from client_addresses a where a.client_id=c.id and a.is_active and a.verify_status='확인필요'))`;
+  else if (f === "fare_check")
+    w = sql`${w} and (c.default_payment_method is null or c.default_discount_rate is null)`;
+
+  const q = (query.q ?? "").trim();
+  if (q) {
+    const like = `%${q}%`;
+    const dg = q.replace(/[^0-9]/g, "");
+    const field = query.field;
+    if (field === "name") w = sql`${w} and c.name ilike ${like}`;
+    else if (field === "biz_no") w = sql`${w} and coalesce(c.business_no,'') ilike ${like}`;
+    else if (field === "manager")
+      w = sql`${w} and exists (select 1 from client_contacts ct where ct.client_id=c.id and ct.is_active and ct.name ilike ${like})`;
+    else if (field === "phone" && dg)
+      w = sql`${w} and (regexp_replace(coalesce(c.phone,''),'[^0-9]','','g') ilike ${"%" + dg + "%"}
+        or exists(select 1 from client_contacts ct where ct.client_id=c.id and ct.is_active and regexp_replace(coalesce(ct.phone,''),'[^0-9]','','g') ilike ${"%" + dg + "%"}))`;
+    else if (field === "region")
+      w = sql`${w} and exists(select 1 from client_addresses a where a.client_id=c.id and a.is_active and (coalesce(a.address,'') ilike ${like} or coalesce(a.pricing_area,'') ilike ${like}))`;
+    else
+      w = sql`${w} and (c.name ilike ${like} or coalesce(c.business_no,'') ilike ${like} or coalesce(c.phone,'') ilike ${like}
+        or exists(select 1 from client_contacts ct where ct.client_id=c.id and ct.is_active and ct.name ilike ${like}))`;
+  }
+  return w;
+}
+
+export async function listManagedClients(query: ManagedClientQuery): Promise<ManagedClientResult> {
+  const page = Math.max(1, query.page ?? 1);
+  const pageSize = query.pageSize ?? 10;
+  const offset = (page - 1) * pageSize;
+  const where = managedWhere(query);
+
+  const consultJoin = sql`client_match_candidates m
+      join conversations cv on cv.id=m.conversation_id and cv.is_active
+    where m.is_active and m.field_type='client' and m.status='confirmed'
+      and coalesce(m.resolved_client_id, m.matched_client_id)=c.id`;
+
+  const [rows, [cnt]] = await Promise.all([
+    sql<(Omit<ManagedClientRow, "last_consult_at" | "knowledge_pct" | "info_incomplete" | "fare_check"> & {
+      last_consult_at: Date | null; business_no: string | null; ceo_name: string | null; has_knowledge: boolean;
+    })[]>`
+      select c.id, c.name, c.client_type, c.is_active, c.business_no, c.ceo_name,
+             c.phone, c.default_vehicle_type, c.default_payment_method, c.default_discount_rate,
+             (select ct.name from client_contacts ct
+                where ct.client_id=c.id and ct.is_active and not ct.is_resigned
+                order by ct.is_primary desc, ct.created_at limit 1) as primary_contact,
+             (select coalesce(a.pricing_area, a.label, a.address) from client_addresses a
+                where a.client_id=c.id and a.is_active and a.usage_type in ('origin','both')
+                order by (a.id=c.default_origin_address_id) desc nulls last, a.label limit 1) as origin_label,
+             (select coalesce(a.label, a.address) from client_addresses a
+                where a.client_id=c.id and a.is_active and a.usage_type in ('destination','both')
+                order by a.is_default_destination desc, a.label limit 1) as destination_label,
+             (select a.pricing_area from client_addresses a where a.id=c.default_origin_address_id) as pricing_area,
+             (select count(distinct cv.id)::int from ${consultJoin}) as consult_count,
+             (select max(cv.created_at) from ${consultJoin}) as last_consult_at,
+             exists(select 1 from client_knowledge k where k.client_id=c.id and k.is_active) as has_knowledge,
+             (not exists(select 1 from client_addresses a where a.client_id=c.id and a.is_active)
+              or exists(select 1 from client_addresses a where a.client_id=c.id and a.is_active and a.verify_status='확인필요')) as address_check
+      from clients c
+      where ${where}
+      order by (c.client_type='주거래처') desc, c.name
+      limit ${pageSize} offset ${offset}`,
+    sql<{ total: number }[]>`select count(*)::int as total from clients c where ${where}`,
+  ]);
+
+  const items: ManagedClientRow[] = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    client_type: r.client_type,
+    is_active: r.is_active,
+    primary_contact: r.primary_contact ?? null,
+    phone: r.phone ?? null,
+    origin_label: r.origin_label ?? null,
+    destination_label: r.destination_label ?? null,
+    default_vehicle_type: r.default_vehicle_type ?? null,
+    default_payment_method: r.default_payment_method ?? null,
+    default_discount_rate: r.default_discount_rate != null ? Number(r.default_discount_rate) : null,
+    pricing_area: r.pricing_area ?? null,
+    consult_count: Number(r.consult_count),
+    last_consult_at: r.last_consult_at ? r.last_consult_at.toISOString() : null,
+    // AI 학습률(placeholder): 지식베이스 있으면 100, 상담 있으면 진행중(40), 없으면 0.
+    knowledge_pct: r.has_knowledge ? 100 : Number(r.consult_count) > 0 ? 40 : 0,
+    info_incomplete: !r.business_no || !r.phone || !r.ceo_name,
+    address_check: r.address_check,
+    fare_check: !r.default_payment_method || r.default_discount_rate == null,
+  }));
+  return { items, total: cnt?.total ?? 0, page, pageSize };
+}
+
 export async function getClient(id: string): Promise<Client | null> {
   const rows = await sql<Client[]>`
     select c.id, c.name, c.client_type, c.business_no, c.phone,
