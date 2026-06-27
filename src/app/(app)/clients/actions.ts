@@ -77,6 +77,7 @@ export async function createClientAction(fd: FormData): Promise<ActionResult> {
       {
         name,
         client_type: str(fd, "client_type"),
+        relationship_type: str(fd, "relationship_type"),
         business_no: str(fd, "business_no"),
         ceo_name: str(fd, "ceo_name"),
         email: str(fd, "email"),
@@ -112,6 +113,7 @@ export async function updateClientAction(
       {
         name,
         client_type: str(fd, "client_type"),
+        relationship_type: str(fd, "relationship_type"),
         business_no: str(fd, "business_no"),
         ceo_name: str(fd, "ceo_name"),
         email: str(fd, "email"),

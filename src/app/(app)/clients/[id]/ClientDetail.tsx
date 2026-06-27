@@ -25,6 +25,7 @@ import {
   DOC_TYPES,
 } from "@/lib/clients-meta";
 import MatchCandidates from "../MatchCandidates";
+import RelationshipField from "./RelationshipField";
 import {
   updateClientAction,
   createContactAction,
@@ -93,6 +94,7 @@ export default function ClientDetail({
   dispatches,
   settlements,
   documents,
+  relationshipOptions,
 }: {
   client: Client;
   contacts: ClientContact[];
@@ -107,6 +109,7 @@ export default function ClientDetail({
   dispatches: DispatchHistory[];
   settlements: Settlement[];
   documents: ClientDocument[];
+  relationshipOptions: { value: string; label: string }[];
 }) {
   const pendingCount = candidates.filter((c) => c.status === "pending").length;
   const TABS: { key: TabKey; label: string; badge?: number }[] = [
@@ -147,7 +150,7 @@ export default function ClientDetail({
         ))}
       </div>
 
-      {tab === "billing" && <BillingTab client={client} addresses={addresses} />}
+      {tab === "billing" && <BillingTab client={client} addresses={addresses} relationshipOptions={relationshipOptions} />}
       {tab === "contacts" && <ContactsTab clientId={client.id} contacts={contacts} />}
       {tab === "addresses" && (
         <AddressesTab
@@ -337,9 +340,11 @@ function KSimple({ title, items }: { title: string; items: { value: string; coun
 function BillingTab({
   client,
   addresses,
+  relationshipOptions,
 }: {
   client: Client;
   addresses: ClientAddress[];
+  relationshipOptions: { value: string; label: string }[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -374,6 +379,10 @@ function BillingTab({
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
+        </label>
+        <label className={labelCls}>
+          <span className={subLabel}>관계/유입 구분</span>
+          <RelationshipField name="relationship_type" defaultValue={client.relationship_type} options={relationshipOptions} />
         </label>
         <label className={labelCls}>
           <span className={subLabel}>사업자번호</span>

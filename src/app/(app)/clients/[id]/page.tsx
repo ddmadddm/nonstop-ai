@@ -12,6 +12,7 @@ import { getClientKnowledge } from "@/lib/db/knowledge";
 import { getPricingPolicy, listRules } from "@/lib/db/client-policy";
 import { listDispatches, listSettlements, listDocuments } from "@/lib/db/client-records";
 import { listClientDrafts } from "@/lib/db/assistant";
+import { listOptions } from "@/lib/db/client-options";
 import ClientDetail from "./ClientDetail";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export default async function ClientDetailPage({
     listSettlements(id),
     listDocuments(id),
   ]);
+  const relOptions = (await listOptions("relationship")).map((o) => ({ value: o.value, label: o.label }));
   const clientOptions = all.map((c) => ({ id: c.id, name: c.name }));
 
   return (
@@ -66,6 +68,7 @@ export default async function ClientDetailPage({
         dispatches={dispatches}
         settlements={settlements}
         documents={documents}
+        relationshipOptions={relOptions}
       />
     </div>
   );

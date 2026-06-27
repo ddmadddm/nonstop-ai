@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const INTEGRATIONS = [
   { name: "카카오 상담톡", desc: "채널톡 상담 수신·발송", connected: false },
   { name: "Supabase", desc: "DB·인증·저장소", connected: false },
@@ -8,6 +10,19 @@ const INTEGRATIONS = [
 export default function SettingsPage() {
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-3xl">
+      <section>
+        <h2 className="text-sm font-semibold mb-2">거래처 설정</h2>
+        <Link
+          href="/settings/client-options"
+          className="block rounded-xl border border-slate-200 bg-white p-4 hover:border-slate-400"
+        >
+          <div className="font-medium">거래처 항목 관리 →</div>
+          <div className="text-sm text-slate-500">
+            관계/유입 구분·결제방식·담당자 역할·주소 카테고리 등 선택 항목을 추가/수정/비활성화
+          </div>
+        </Link>
+      </section>
+
       <section>
         <h2 className="text-sm font-semibold mb-2">연동 상태</h2>
         <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">

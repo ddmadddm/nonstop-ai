@@ -7,6 +7,7 @@ export interface Client {
   id: string;
   name: string;
   client_type: string;
+  relationship_type: string | null; // 관계/유입 구분
   business_no: string | null;
   ceo_name: string | null; // 대표자명
   email: string | null;
@@ -158,8 +159,9 @@ export type ClientFilter =
 
 export interface ManagedClientQuery {
   filter?: ClientFilter;
+  rel?: string | null; // 관계/유입 구분 필터(client_options.value)
   q?: string;
-  field?: "name" | "manager" | "phone" | "biz_no" | "region" | null;
+  field?: "name" | "manager" | "phone" | "biz_no" | "region" | "relationship" | null;
   page?: number;
   pageSize?: number;
 }
@@ -168,6 +170,7 @@ export interface ManagedClientRow {
   id: string;
   name: string;
   client_type: string;
+  relationship_type: string | null;
   is_active: boolean;
   primary_contact: string | null;
   phone: string | null;
@@ -206,6 +209,14 @@ function managedWhere(query: ManagedClientQuery) {
   else if (f === "fare_check")
     w = sql`${w} and (c.default_payment_method is null or c.default_discount_rate is null)`;
 
+  // 관계/유입 구분 필터
+  const rel = (query.rel ?? "").trim();
+  if (rel) {
+    w = rel === "미분류"
+      ? sql`${w} and c.relationship_type is null`
+      : sql`${w} and c.relationship_type=${rel}`;
+  }
+
   const q = (query.q ?? "").trim();
   if (q) {
     const like = `%${q}%`;
@@ -220,8 +231,11 @@ function managedWhere(query: ManagedClientQuery) {
         or exists(select 1 from client_contacts ct where ct.client_id=c.id and ct.is_active and regexp_replace(coalesce(ct.phone,''),'[^0-9]','','g') ilike ${"%" + dg + "%"}))`;
     else if (field === "region")
       w = sql`${w} and exists(select 1 from client_addresses a where a.client_id=c.id and a.is_active and (coalesce(a.address,'') ilike ${like} or coalesce(a.pricing_area,'') ilike ${like}))`;
+    else if (field === "relationship")
+      w = sql`${w} and coalesce(c.relationship_type,'') ilike ${like}`;
     else
       w = sql`${w} and (c.name ilike ${like} or coalesce(c.business_no,'') ilike ${like} or coalesce(c.phone,'') ilike ${like}
+        or coalesce(c.relationship_type,'') ilike ${like}
         or exists(select 1 from client_contacts ct where ct.client_id=c.id and ct.is_active and ct.name ilike ${like}))`;
   }
   return w;
@@ -242,7 +256,7 @@ export async function listManagedClients(query: ManagedClientQuery): Promise<Man
     sql<(Omit<ManagedClientRow, "last_consult_at" | "knowledge_pct" | "info_incomplete" | "fare_check"> & {
       last_consult_at: Date | null; business_no: string | null; ceo_name: string | null; has_knowledge: boolean;
     })[]>`
-      select c.id, c.name, c.client_type, c.is_active, c.business_no, c.ceo_name,
+      select c.id, c.name, c.client_type, c.relationship_type, c.is_active, c.business_no, c.ceo_name,
              c.phone, c.default_vehicle_type, c.default_payment_method, c.default_discount_rate,
              (select ct.name from client_contacts ct
                 where ct.client_id=c.id and ct.is_active and not ct.is_resigned
@@ -270,6 +284,7 @@ export async function listManagedClients(query: ManagedClientQuery): Promise<Man
     id: r.id,
     name: r.name,
     client_type: r.client_type,
+    relationship_type: (r as { relationship_type: string | null }).relationship_type ?? null,
     is_active: r.is_active,
     primary_contact: r.primary_contact ?? null,
     phone: r.phone ?? null,
@@ -292,7 +307,7 @@ export async function listManagedClients(query: ManagedClientQuery): Promise<Man
 
 export async function getClient(id: string): Promise<Client | null> {
   const rows = await sql<(Omit<Client, "started_on"> & { started_on: Date | null })[]>`
-    select c.id, c.name, c.client_type, c.business_no, c.ceo_name, c.email, c.address, c.phone,
+    select c.id, c.name, c.client_type, c.relationship_type, c.business_no, c.ceo_name, c.email, c.address, c.phone,
            c.started_on, c.tax_invoice, c.default_payment_method, c.default_discount_rate,
            c.default_vehicle_type, c.frequent_vehicle_types, c.fare_terms, c.memo,
            c.default_origin_address_id, a.label as default_origin_label
@@ -311,6 +326,7 @@ export async function getClient(id: string): Promise<Client | null> {
 export interface ClientInput {
   name: string;
   client_type?: string | null;
+  relationship_type?: string | null;
   business_no?: string | null;
   ceo_name?: string | null;
   email?: string | null;
@@ -330,11 +346,12 @@ export async function createClient(input: ClientInput, byName?: string): Promise
   const by = await resolveAgentId(byName);
   const [row] = await sql<{ id: string }[]>`
     insert into clients
-      (name, client_type, business_no, ceo_name, email, address, phone, started_on, tax_invoice,
+      (name, client_type, relationship_type, business_no, ceo_name, email, address, phone, started_on, tax_invoice,
        default_payment_method, default_discount_rate, default_vehicle_type,
        frequent_vehicle_types, fare_terms, memo, created_by, updated_by)
     values
       (${input.name}, coalesce(${input.client_type ?? null}, '일반거래처'),
+       ${input.relationship_type ?? null},
        ${input.business_no ?? null}, ${input.ceo_name ?? null}, ${input.email ?? null},
        ${input.address ?? null}, ${input.phone ?? null}, ${input.started_on ?? null},
        ${input.tax_invoice ?? false},
@@ -356,6 +373,7 @@ export async function updateClient(
     update clients set
       name=${input.name},
       client_type=coalesce(${input.client_type ?? null}, client_type),
+      relationship_type=${input.relationship_type ?? null},
       business_no=${input.business_no ?? null},
       ceo_name=${input.ceo_name ?? null}, email=${input.email ?? null},
       address=${input.address ?? null}, phone=${input.phone ?? null},

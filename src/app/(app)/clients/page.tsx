@@ -6,6 +6,7 @@ import {
   type ManagedClientRow,
 } from "@/lib/db/clients";
 import { CLIENT_TYPE_BADGE } from "@/lib/clients-meta";
+import { listOptions } from "@/lib/db/client-options";
 import { formatDateTime } from "@/lib/utils";
 import Pagination from "@/components/Pagination";
 import NewClientForm from "./NewClientForm";
@@ -30,11 +31,12 @@ const SEARCH_FIELDS: { value: string; label: string }[] = [
   { value: "phone", label: "연락처" },
   { value: "biz_no", label: "사업자번호" },
   { value: "region", label: "지역" },
+  { value: "relationship", label: "관계/유입" },
 ];
 
 const PAGE_SIZE = 10;
 
-type SP = { filter?: string; field?: string; q?: string; page?: string };
+type SP = { filter?: string; field?: string; q?: string; page?: string; rel?: string };
 
 export default async function ClientsPage({
   searchParams,
@@ -45,25 +47,29 @@ export default async function ClientsPage({
   const filter = (FILTERS.find((f) => f.key === sp.filter)?.key ?? "all") as ClientFilter;
   const field = sp.field ?? "";
   const q = sp.q ?? "";
+  const rel = sp.rel ?? "";
   const page = Math.max(1, Number(sp.page) || 1);
 
-  const [result, pending] = await Promise.all([
+  const [result, pending, relOptions] = await Promise.all([
     listManagedClients({
       filter,
+      rel,
       q,
       field: (field || null) as never,
       page,
       pageSize: PAGE_SIZE,
     }),
     listPendingCandidates(),
+    listOptions("relationship"),
   ]);
 
   const qs = (over: Partial<SP>) => {
     const p = new URLSearchParams();
-    const merged = { filter, field, q, page: String(page), ...over };
+    const merged = { filter, field, q, rel, page: String(page), ...over };
     if (merged.filter && merged.filter !== "all") p.set("filter", merged.filter);
     if (merged.field) p.set("field", merged.field);
     if (merged.q) p.set("q", merged.q);
+    if (merged.rel) p.set("rel", merged.rel);
     if (merged.page && merged.page !== "1") p.set("page", merged.page);
     const s = p.toString();
     return s ? `/clients?${s}` : "/clients";
@@ -111,6 +117,39 @@ export default async function ClientsPage({
               </span>
             )}
           </Link>
+
+          {/* 관계/유입 구분 필터 */}
+          <div className="my-2 border-t border-slate-100" />
+          <div className="px-2 py-1 text-[11px] font-semibold text-slate-400">관계/유입</div>
+          <nav className="space-y-0.5">
+            <Link
+              href={qs({ rel: "", page: "1" })}
+              className={`block rounded-lg px-2.5 py-1.5 text-sm ${
+                !rel ? "bg-slate-100 text-slate-800 font-medium" : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              전체
+            </Link>
+            {relOptions.map((o) => (
+              <Link
+                key={o.value}
+                href={qs({ rel: o.value, page: "1" })}
+                className={`block rounded-lg px-2.5 py-1.5 text-sm ${
+                  rel === o.value ? "bg-slate-900 text-white font-medium" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {o.label}
+              </Link>
+            ))}
+            <Link
+              href={qs({ rel: "미분류", page: "1" })}
+              className={`block rounded-lg px-2.5 py-1.5 text-sm ${
+                rel === "미분류" ? "bg-slate-900 text-white font-medium" : "text-slate-400 hover:bg-slate-50"
+              }`}
+            >
+              미분류
+            </Link>
+          </nav>
         </aside>
 
         {/* 우측: 검색 + 테이블 — 남은 폭 전부 사용 */}
@@ -118,6 +157,7 @@ export default async function ClientsPage({
           {/* 검색 */}
           <form method="get" className="flex flex-wrap items-center gap-2">
             {filter !== "all" && <input type="hidden" name="filter" value={filter} />}
+            {rel && <input type="hidden" name="rel" value={rel} />}
             <select
               name="field"
               defaultValue={field}
@@ -149,6 +189,7 @@ export default async function ClientsPage({
                 <tr className="border-b border-slate-100 text-left text-[11px] text-slate-400">
                   <Th>거래처명</Th>
                   <Th>구분</Th>
+                  <Th>관계/유입</Th>
                   <Th>대표담당자</Th>
                   <Th>대표연락처</Th>
                   <Th>주요출발</Th>
@@ -167,7 +208,7 @@ export default async function ClientsPage({
               <tbody className="divide-y divide-slate-50">
                 {result.items.length === 0 && (
                   <tr>
-                    <td colSpan={15} className="p-8 text-center text-sm text-slate-400">
+                    <td colSpan={16} className="p-8 text-center text-sm text-slate-400">
                       조건에 맞는 거래처가 없습니다.
                     </td>
                   </tr>
@@ -217,6 +258,11 @@ function Row({ c }: { c: ManagedClientRow }) {
         <span className={`rounded-full px-2 py-0.5 text-[11px] ${CLIENT_TYPE_BADGE[c.client_type] ?? "bg-slate-100 text-slate-600"}`}>
           {c.client_type}
         </span>
+      </Td>
+      <Td>
+        {c.relationship_type
+          ? <span className="rounded-full bg-violet-100 text-violet-700 px-2 py-0.5 text-[11px]">{c.relationship_type}</span>
+          : <span className="text-slate-300 text-[11px]">미분류</span>}
       </Td>
       <Td>{c.primary_contact}</Td>
       <Td>{c.phone}</Td>
