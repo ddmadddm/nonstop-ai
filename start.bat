@@ -16,9 +16,9 @@ if not exist "node_modules" (
   echo.
 )
 
-REM 3초 뒤 브라우저 자동 열기 (서버 준비 시간 확보)
-echo 잠시 후 브라우저가 자동으로 열립니다...
-start "" /b cmd /c "ping -n 4 127.0.0.1 >nul & start http://localhost:3100"
+REM 서버가 실제로 응답할 때까지 기다렸다가 브라우저 자동 열기
+echo 서버 준비가 끝나면 브라우저가 자동으로 열립니다...
+start "" /b cmd /c "for /l %%i in (1,1,120) do (curl -s -o nul http://localhost:3100 && (start "" http://localhost:3100 & exit /b) || ping -n 2 127.0.0.1 >nul)"
 
 echo 서버를 시작합니다. (종료하려면 이 창에서 Ctrl+C 를 누르거나 창을 닫으세요)
 echo.
