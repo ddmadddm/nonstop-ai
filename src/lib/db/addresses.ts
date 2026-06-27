@@ -94,6 +94,36 @@ async function addressBookLookup(raw: string): Promise<ResolvedAddress | null> {
   };
 }
 
+function toSide(raw: string | null, r: ResolvedAddress | null): SideAddress {
+  return {
+    raw: raw ?? null,
+    kind: r?.kind ?? null,
+    road_address: r?.road_address ?? null,
+    jibun_address: r?.jibun_address ?? null,
+    pricing_area: r?.pricing_area ?? null,
+  };
+}
+
+// 두 원문 주소를 변환해 ExtractionAddresses 형태로 반환(DB 저장 없음).
+//   논사원 답변 등 conversation_extractions 가 아닌 곳에서도 재사용.
+export async function resolveAddressPair(
+  originRaw: string | null,
+  destRaw: string | null,
+): Promise<ExtractionAddresses | null> {
+  if (!originRaw && !destRaw) return null;
+  const [o, d] = await Promise.all([resolveOne(originRaw), resolveOne(destRaw)]);
+  const sides = [o, d].filter(Boolean) as ResolvedAddress[];
+  const confs = sides.map((s) => s.confidence);
+  const minConf = confs.length ? Math.min(...confs) : null;
+  const needsReview = sides.some((s) => s.confidence < REVIEW_THRESHOLD || s.kind === "incomplete");
+  return {
+    origin: toSide(originRaw, o),
+    destination: toSide(destRaw, d),
+    status: needsReview ? "needs_review" : "resolved",
+    confidence: minConf,
+  };
+}
+
 async function resolveOne(raw: string | null): Promise<ResolvedAddress | null> {
   if (!raw || !raw.trim()) return null;
   const book = await addressBookLookup(raw);

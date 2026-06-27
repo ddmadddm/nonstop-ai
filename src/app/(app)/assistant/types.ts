@@ -2,6 +2,7 @@
 //   주의: "use server" 파일(actions.ts)은 async 함수만 export 할 수 있으므로,
 //   런타임 상수(MODE_LABEL)와 타입은 이 일반 모듈에 둔다.
 import type { ExtractionFields, FieldKey } from "@/lib/ai/extract";
+import type { ExtractionAddresses } from "@/lib/db/addresses";
 
 // 거래처 구분(라디오) — 직원 선택값
 export type ClientMode = "auto" | "general" | "key_client" | "new_candidate";
@@ -48,4 +49,5 @@ export interface AnswerActionResult {
   matchedTotal?: number;
   recognition?: Recognition;
   basis?: string[]; // 참고한 근거 라벨
+  addressConversion?: ExtractionAddresses | null; // 출발/도착 주소 변환(신/구/가격표)
 }

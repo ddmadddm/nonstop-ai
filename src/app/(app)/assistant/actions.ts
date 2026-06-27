@@ -11,6 +11,7 @@ import {
 import { generateAnswer, normalizeAnswerText } from "@/lib/ai/answer";
 import { getClientKnowledge, type ClientKnowledge } from "@/lib/db/knowledge";
 import { getClient, searchClients, type ClientSearchHit } from "@/lib/db/clients";
+import { resolveAddressPair } from "@/lib/db/addresses";
 import { getFaqs } from "@/lib/data";
 import { getActorName } from "@/lib/auth";
 import type { Faq } from "@/lib/types";
@@ -104,6 +105,9 @@ export async function generateAnswerAction(
     const result = await generateAnswer(q, ctx, { knowledgeText, faqText, modeHint });
     const f = result.fields;
 
+    // 3-1) 출발/도착지 주소 변환(신/구/가격표) — 직원 확인용 내부 정보. best-effort.
+    const addressConversion = await resolveAddressPair(f.origin, f.destination).catch(() => null);
+
     // 4) 최종 구분(자동판단이면 추출 결과로 재분류)
     let resolvedMode: ResolvedMode;
     if (requestedMode !== "auto") {
@@ -173,6 +177,7 @@ export async function generateAnswerAction(
       clientName: matched?.name ?? f.client_name,
       managerName: f.manager_name,
       phone: f.phone,
+      addressConversion,
     });
 
     // 8) 근거 라벨
@@ -212,6 +217,7 @@ export async function generateAnswerAction(
       matchedTotal: ctx.total,
       recognition,
       basis,
+      addressConversion,
     };
   } catch (e) {
     return { ok: false, message: `답변 생성 실패: ${(e as Error).message}` };

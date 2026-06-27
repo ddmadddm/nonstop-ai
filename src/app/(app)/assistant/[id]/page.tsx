@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDraftDetail } from "@/lib/db/assistant";
+import type { ExtractionAddresses } from "@/lib/db/addresses";
 import { formatDateTime } from "@/lib/utils";
+import AddressInternalCard from "@/components/AddressInternalCard";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +104,11 @@ export default async function DraftDetailPage({
           {d.answer_final ?? d.answer_draft ?? "—"}
         </p>
       </div>
+
+      {/* 주소 변환(신/구 + 가격표 기준) — 직원 확인용 */}
+      <AddressInternalCard
+        addresses={(d.address_conversion as unknown as ExtractionAddresses | null) ?? null}
+      />
 
       {/* 수정본이 있으면 AI 원본 초안도 함께(비교/학습용) */}
       {d.answer_final && d.answer_draft && d.answer_final !== d.answer_draft && (
