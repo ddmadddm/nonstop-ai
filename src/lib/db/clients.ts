@@ -305,6 +305,42 @@ export async function listManagedClients(query: ManagedClientQuery): Promise<Man
   return { items, total: cnt?.total ?? 0, page, pageSize };
 }
 
+// 엑셀 내보내기용 — 활성 거래처 전체(편집 가능 필드). 업로드와 컬럼 일치.
+export interface ClientExportRow {
+  name: string;
+  client_type: string;
+  relationship_type: string | null;
+  business_no: string | null;
+  ceo_name: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  started_on: string | null;
+  default_payment_method: string | null;
+  default_discount_rate: number | null;
+  default_vehicle_type: string | null;
+  fare_terms: string | null;
+  memo: string | null;
+}
+export async function exportClients(): Promise<ClientExportRow[]> {
+  const rows = await sql<(Omit<ClientExportRow, "started_on"> & { started_on: Date | null })[]>`
+    select name, client_type, relationship_type, business_no, ceo_name, phone, email, address,
+           started_on, default_payment_method, default_discount_rate, default_vehicle_type, fare_terms, memo
+    from clients where is_active order by client_type='주거래처' desc, name`;
+  return rows.map((r) => ({
+    ...r,
+    started_on: r.started_on ? r.started_on.toISOString().slice(0, 10) : null,
+    default_discount_rate: r.default_discount_rate != null ? Number(r.default_discount_rate) : null,
+  }));
+}
+
+// 이름으로 활성 거래처 id 조회(엑셀 업로드 upsert용).
+export async function findActiveClientIdByName(name: string): Promise<string | null> {
+  const [r] = await sql<{ id: string }[]>`
+    select id from clients where lower(name)=lower(${name.trim()}) and is_active limit 1`;
+  return r?.id ?? null;
+}
+
 export async function getClient(id: string): Promise<Client | null> {
   const rows = await sql<(Omit<Client, "started_on"> & { started_on: Date | null })[]>`
     select c.id, c.name, c.client_type, c.relationship_type, c.business_no, c.ceo_name, c.email, c.address, c.phone,

@@ -10,6 +10,7 @@ import { listOptions } from "@/lib/db/client-options";
 import { formatDateTime } from "@/lib/utils";
 import Pagination from "@/components/Pagination";
 import NewClientForm from "./NewClientForm";
+import ClientExcelBar from "./ClientExcelBar";
 
 export const dynamic = "force-dynamic";
 
@@ -77,7 +78,8 @@ export default async function ClientsPage({
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-semibold">거래처 관리</h1>
         <span className="text-sm text-slate-400">Total {result.total.toLocaleString()}</span>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <ClientExcelBar />
           <NewClientForm relationshipOptions={relOptions.map((o) => ({ value: o.value, label: o.label }))} />
         </div>
       </div>

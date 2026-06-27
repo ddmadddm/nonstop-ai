@@ -1,10 +1,14 @@
 "use server";
 
+import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 import {
   createClient,
   updateClient,
   deactivateClient,
+  exportClients,
+  findActiveClientIdByName,
+  type ClientInput,
   setDefaultOrigin,
   createContact,
   updateContact,
@@ -145,6 +149,133 @@ export async function deactivateClientAction(id: string): Promise<ActionResult> 
     return { ok: true, message: "거래처를 비활성화했습니다." };
   } catch (e) {
     return { ok: false, message: `처리 실패: ${(e as Error).message}` };
+  }
+}
+
+// ── 엑셀 다운로드 / 업로드 ────────────────────────────────────────────
+//   다운로드한 파일을 편집해 그대로 업로드하면 거래처명 기준 upsert(있으면 수정, 없으면 추가).
+const EXCEL_COLS: { h: string; k: keyof ClientInput }[] = [
+  { h: "거래처명", k: "name" },
+  { h: "거래처구분", k: "client_type" },
+  { h: "관계/유입", k: "relationship_type" },
+  { h: "사업자번호", k: "business_no" },
+  { h: "대표자명", k: "ceo_name" },
+  { h: "대표연락처", k: "phone" },
+  { h: "이메일", k: "email" },
+  { h: "주소", k: "address" },
+  { h: "거래시작일", k: "started_on" },
+  { h: "결제방식", k: "default_payment_method" },
+  { h: "기본할인율", k: "default_discount_rate" },
+  { h: "기본차종", k: "default_vehicle_type" },
+  { h: "요금조건", k: "fare_terms" },
+  { h: "메모", k: "memo" },
+];
+
+export async function exportClientsAction(): Promise<{ ok: boolean; message: string; base64?: string; filename?: string }> {
+  try {
+    await actor();
+    const rows = await exportClients();
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("거래처");
+    ws.addRow(EXCEL_COLS.map((c) => c.h)).font = { bold: true };
+    for (const r of rows) {
+      const rec = r as unknown as Record<string, unknown>;
+      ws.addRow(EXCEL_COLS.map((c) => rec[c.k] ?? ""));
+    }
+    EXCEL_COLS.forEach((_, i) => { ws.getColumn(i + 1).width = 16; });
+    const buf = await wb.xlsx.writeBuffer();
+    return {
+      ok: true,
+      message: `${rows.length}건`,
+      base64: Buffer.from(buf).toString("base64"),
+      filename: "거래처목록.xlsx",
+    };
+  } catch (e) {
+    return { ok: false, message: `내보내기 실패: ${(e as Error).message}` };
+  }
+}
+
+export interface ImportResult {
+  ok: boolean;
+  message: string;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
+function cellText(row: ExcelJS.Row, idx: Record<string, number>, header: string): string | null {
+  const col = idx[header];
+  if (!col) return null;
+  const v = row.getCell(col).value as unknown;
+  if (v == null) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "object") {
+    const o = v as { text?: string; result?: unknown; richText?: { text: string }[] };
+    if (o.richText) return o.richText.map((t) => t.text).join("").trim() || null;
+    if (o.text != null) return String(o.text).trim() || null;
+    if (o.result != null) return String(o.result).trim() || null;
+    return null;
+  }
+  return String(v).trim() || null;
+}
+
+export async function importClientsAction(fd: FormData): Promise<ImportResult> {
+  const empty = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
+  try {
+    const by = await actor();
+    const file = fd.get("file");
+    if (!(file instanceof File) || file.size === 0) return { ok: false, message: "파일을 선택하세요.", ...empty };
+    if (!file.name.toLowerCase().endsWith(".xlsx")) return { ok: false, message: "xlsx 파일만 지원합니다(다운로드 양식 사용).", ...empty };
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(await file.arrayBuffer()) as unknown as Parameters<typeof wb.xlsx.load>[0]);
+    const ws = wb.worksheets[0];
+    if (!ws) return { ok: false, message: "시트를 찾을 수 없습니다.", ...empty };
+
+    const idx: Record<string, number> = {};
+    ws.getRow(1).eachCell((cell, col) => { idx[String(cell.value ?? "").trim()] = col; });
+    if (!idx["거래처명"]) return { ok: false, message: "'거래처명' 헤더가 없습니다. 다운로드 양식을 사용하세요.", ...empty };
+
+    let created = 0, updated = 0, skipped = 0;
+    const errors: string[] = [];
+    for (let i = 2; i <= ws.rowCount; i++) {
+      const row = ws.getRow(i);
+      const name = cellText(row, idx, "거래처명");
+      if (!name) { skipped++; continue; }
+      try {
+        const discount = cellText(row, idx, "기본할인율");
+        const input: ClientInput = {
+          name,
+          client_type: cellText(row, idx, "거래처구분"),
+          relationship_type: cellText(row, idx, "관계/유입"),
+          business_no: cellText(row, idx, "사업자번호"),
+          ceo_name: cellText(row, idx, "대표자명"),
+          phone: cellText(row, idx, "대표연락처"),
+          email: cellText(row, idx, "이메일"),
+          address: cellText(row, idx, "주소"),
+          started_on: cellText(row, idx, "거래시작일"),
+          default_payment_method: cellText(row, idx, "결제방식"),
+          default_discount_rate: discount != null && Number.isFinite(Number(discount)) ? Number(discount) : null,
+          default_vehicle_type: cellText(row, idx, "기본차종"),
+          fare_terms: cellText(row, idx, "요금조건"),
+          memo: cellText(row, idx, "메모"),
+        };
+        const existing = await findActiveClientIdByName(name);
+        if (existing) { await updateClient(existing, input, by); updated++; }
+        else { await createClient(input, by); created++; }
+      } catch (e) {
+        errors.push(`${name}: ${(e as Error).message}`);
+      }
+    }
+    revalidatePath("/clients");
+    return {
+      ok: true,
+      message: `완료 — 추가 ${created} · 수정 ${updated} · 건너뜀 ${skipped}${errors.length ? ` · 오류 ${errors.length}` : ""}`,
+      created, updated, skipped, errors,
+    };
+  } catch (e) {
+    return { ok: false, message: `업로드 실패: ${(e as Error).message}`, ...empty };
   }
 }
 
