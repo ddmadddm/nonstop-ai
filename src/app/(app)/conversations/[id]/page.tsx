@@ -7,10 +7,23 @@ import { DispatchCard, OrderCard } from "@/components/OrderCard";
 import { getClient, getConversation, getFaqsByIds } from "@/lib/data";
 import { getConsultation } from "@/lib/db/consultations";
 import type { Consultation } from "@/lib/db/consultations";
+import { sql } from "@/lib/db/client";
+import { getExtraction, type Extraction } from "@/lib/db/extractions";
+import { getExtractionAddresses, type ExtractionAddresses } from "@/lib/db/addresses";
+import AddressInternalCard from "@/components/AddressInternalCard";
 import type { Message } from "@/lib/types";
 import { cx, formatDateTime, formatTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+// 실제 추출 대화(상담자료 업로드로 생성된 conversation) 조회 — 목업에 없을 때 폴백.
+async function getRealConversation(id: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id)) return null; // UUID 형태만 시도
+  const [c] = await sql<{ id: string; title: string | null; message_count: number }[]>`
+    select id, title, message_count from conversations
+    where id = ${id} and is_active and source_system in ('chatlog','material')`;
+  return c ?? null;
+}
 
 function Bubble({ m }: { m: Message }) {
   const isCustomer = m.sender === "customer";
@@ -63,7 +76,18 @@ export default async function ConversationDetailPage({
   }
 
   const cv = await getConversation(id);
-  if (!cv) notFound();
+  if (!cv) {
+    // 목업에 없으면 실제 추출 대화(상담자료)일 수 있다 → 추출/주소변환을 불러와 표시.
+    const real = await getRealConversation(id);
+    if (real) {
+      const [extraction, addresses] = await Promise.all([
+        getExtraction(id),
+        getExtractionAddresses(id),
+      ]);
+      return <RealConversationDetail conv={real} extraction={extraction} addresses={addresses} />;
+    }
+    notFound();
+  }
 
   const [client, draftFaqs] = await Promise.all([
     getClient(cv.clientId),
@@ -134,6 +158,54 @@ function Field({ label, value }: { label: string; value?: string }) {
     <div className="flex gap-2 text-sm">
       <dt className="w-16 shrink-0 text-slate-400">{label}</dt>
       <dd className="font-medium">{value}</dd>
+    </div>
+  );
+}
+
+// 실제 추출 대화 상세 — 배차 항목 요약 + 주소 변환 카드. 전체 편집은 /chatlogs/[id].
+function RealConversationDetail({
+  conv,
+  extraction,
+  addresses,
+}: {
+  conv: { id: string; title: string | null; message_count: number };
+  extraction: Extraction | null;
+  addresses: ExtractionAddresses | null;
+}) {
+  return (
+    <div className="p-4 sm:p-6 max-w-3xl space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Link href="/conversations" className="text-slate-400 hover:text-slate-900">
+          ←
+        </Link>
+        <span className="font-semibold">{conv.title ?? "상담"}</span>
+        <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs">AI 추출 상담</span>
+        <Link
+          href={`/chatlogs/${conv.id}`}
+          className="ml-auto text-xs text-slate-500 underline hover:text-slate-900"
+        >
+          원본·추출 상세 →
+        </Link>
+      </div>
+
+      {extraction ? (
+        <dl className="rounded-xl border border-slate-200 bg-white p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+          <Field label="거래처" value={extraction.client_name ?? undefined} />
+          <Field label="담당자" value={extraction.manager_name ?? undefined} />
+          <Field label="연락처" value={extraction.phone ?? undefined} />
+          <Field label="출발지" value={extraction.origin ?? undefined} />
+          <Field label="도착지" value={extraction.destination ?? undefined} />
+          <Field label="차량종류" value={extraction.vehicle_type ?? undefined} />
+          <Field label="상담유형" value={extraction.consultation_type ?? undefined} />
+        </dl>
+      ) : (
+        <div className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-sm text-slate-400">
+          아직 AI 추출 결과가 없습니다. 상담자료 상세에서 추출을 실행하세요.
+        </div>
+      )}
+
+      {/* 주소 변환(신/구 + 가격표 기준) — 직원 확인용 */}
+      <AddressInternalCard addresses={addresses} />
     </div>
   );
 }
