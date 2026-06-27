@@ -10,7 +10,7 @@ const INTEGRATIONS = [
 export default function SettingsPage() {
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-3xl">
-      <section>
+      <section className="space-y-2">
         <h2 className="text-sm font-semibold mb-2">거래처 관리</h2>
         <Link
           href="/settings/client-options"
@@ -19,6 +19,15 @@ export default function SettingsPage() {
           <div className="font-medium">거래처 항목 설정 →</div>
           <div className="text-sm text-slate-500">
             관계/유입·거래처 구분·결제방식·담당자 역할·주소 카테고리/확인상태 항목 추가/수정/비활성화
+          </div>
+        </Link>
+        <Link
+          href="/settings/pricing"
+          className="block rounded-xl border border-slate-200 bg-white p-4 hover:border-slate-400"
+        >
+          <div className="font-medium">운임/요금 관리 → 공통 가격책정 매뉴얼 →</div>
+          <div className="text-sm text-slate-500">
+            차종별 기본요금·일반할증·경유할증·기타 유동할증 + 요금 초안 계산 테스트
           </div>
         </Link>
       </section>
