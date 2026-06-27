@@ -186,18 +186,15 @@ export default async function MaterialsPage({
       {/* ── 직접 입력(원문/캡처) — 구 "자료 업로드" 통합 ───────────────── */}
       <section className="border-t border-slate-200 pt-6 space-y-3">
         <div>
-          <h2 className="text-sm font-semibold">✍️ 직접 입력 (원문·캡처)</h2>
+          <h2 className="text-sm font-semibold">✍️ 직접 입력 (원문)</h2>
           <p className="text-xs text-slate-400 mt-1">
-            카카오 상담 원문이나 캡처 이미지를 직접 붙여넣어 기록합니다. 상담내용은{" "}
-            <b>원문 그대로</b> 저장(AI 가공 없음)되고, &ldquo;비활성화&rdquo;는 물리삭제가 아니라
-            데이터 보존 처리입니다.
+            카카오 상담 원문을 직접 붙여넣어 기록합니다. 상담내용은{" "}
+            <b>원문 그대로</b> 저장(AI 가공 없음)되고, 등록자는 로그인 사용자로 자동 기록됩니다.
+            &ldquo;비활성화&rdquo;는 물리삭제가 아니라 데이터 보존 처리입니다.
           </p>
         </div>
 
-        <ConsultationInputForm
-          clientNames={clients.map((c) => c.name)}
-          defaultCreatedBy={createdBy}
-        />
+        <ConsultationInputForm />
 
         <div>
           <h3 className="text-sm font-semibold mb-2">
