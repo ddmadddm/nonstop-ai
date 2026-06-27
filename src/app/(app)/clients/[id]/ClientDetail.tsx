@@ -11,12 +11,15 @@ import type {
   MatchCandidate,
 } from "@/lib/db/clients";
 import type { ClientKnowledge } from "@/lib/db/knowledge";
+import type { PricingPolicy, ClientRule } from "@/lib/db/client-policy";
 import {
   CLIENT_TYPES,
   PAYMENT_METHODS,
   CONTACT_ROLES,
   ADDRESS_CATEGORIES,
   ADDRESS_VERIFY,
+  VEHICLE_TYPES,
+  RULE_TYPES,
 } from "@/lib/clients-meta";
 import MatchCandidates from "../MatchCandidates";
 import {
@@ -30,6 +33,10 @@ import {
   setDefaultOriginAction,
   buildClientKnowledgeAction,
   addAddressFromKnowledgeAction,
+  savePricingAction,
+  createRuleAction,
+  updateRuleAction,
+  deactivateRuleAction,
   type ActionResult,
 } from "../actions";
 
@@ -39,7 +46,7 @@ const USAGE_LABEL: Record<string, string> = {
   both: "출발/도착",
 };
 
-type TabKey = "billing" | "contacts" | "addresses" | "history" | "match" | "knowledge";
+type TabKey = "billing" | "contacts" | "addresses" | "pricing" | "rules" | "history" | "match" | "knowledge";
 
 const input = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm";
 const labelCls = "block text-sm";
@@ -62,6 +69,8 @@ export default function ClientDetail({
   candidates,
   clientOptions,
   knowledge,
+  pricing,
+  rules,
 }: {
   client: Client;
   contacts: ClientContact[];
@@ -70,12 +79,16 @@ export default function ClientDetail({
   candidates: MatchCandidate[];
   clientOptions: { id: string; name: string }[];
   knowledge: ClientKnowledge | null;
+  pricing: PricingPolicy | null;
+  rules: ClientRule[];
 }) {
   const pendingCount = candidates.filter((c) => c.status === "pending").length;
   const TABS: { key: TabKey; label: string; badge?: number }[] = [
-    { key: "billing", label: "요금·결제" },
+    { key: "billing", label: "기본정보" },
     { key: "contacts", label: `담당자 ${contacts.length}` },
     { key: "addresses", label: `주소록 ${addresses.length}` },
+    { key: "pricing", label: "운임·요금" },
+    { key: "rules", label: `AI 업무규칙 ${rules.length}` },
     { key: "history", label: `상담이력 ${consultations.length}` },
     { key: "match", label: "AI 매칭", badge: pendingCount },
     { key: "knowledge", label: "지식베이스" },
@@ -113,6 +126,8 @@ export default function ClientDetail({
           addresses={addresses}
         />
       )}
+      {tab === "pricing" && <PricingTab clientId={client.id} pricing={pricing} />}
+      {tab === "rules" && <RulesTab clientId={client.id} rules={rules} />}
       {tab === "history" && <HistoryTab consultations={consultations} />}
       {tab === "match" && (
         <div className="rounded-xl border border-slate-200 bg-white">
@@ -992,5 +1007,239 @@ function HistoryTab({ consultations }: { consultations: ClientConsultation[] }) 
         </Link>
       ))}
     </div>
+  );
+}
+
+// ── 운임·요금 정책 ───────────────────────────────────────────────────
+function NumField({ name, label, dv }: { name: string; label: string; dv: number | null }) {
+  return (
+    <label className="block text-xs">
+      <span className={subLabel}>{label}</span>
+      <input type="number" step="any" name={name} defaultValue={dv ?? ""} className={`mt-1 ${input}`} />
+    </label>
+  );
+}
+
+function PricingTab({ clientId, pricing }: { clientId: string; pricing: PricingPolicy | null }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const p = pricing;
+
+  function save(fd: FormData) {
+    startTransition(async () => {
+      const r = await savePricingAction(clientId, fd);
+      setResult(r);
+      if (r.ok) router.refresh();
+    });
+  }
+
+  return (
+    <form action={save} className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
+      <div>
+        <div className="text-sm font-semibold mb-2">기본 운임 / 할인</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <NumField name="base_fare" label="기본요금" dv={p?.base_fare ?? null} />
+          <NumField name="discount_rate" label="할인율(%)" dv={p?.discount_rate ?? null} />
+        </div>
+      </div>
+
+      <div>
+        <div className="text-sm font-semibold mb-2">경유비</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <NumField name="via_same_gu" label="같은 구" dv={p?.via_same_gu ?? null} />
+          <NumField name="via_other_gu" label="다른 구" dv={p?.via_other_gu ?? null} />
+          <NumField name="via_other_city" label="다른 시/군" dv={p?.via_other_city ?? null} />
+        </div>
+      </div>
+
+      <div>
+        <div className="text-sm font-semibold mb-2">할증</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <NumField name="night_surcharge" label="야간할증" dv={p?.night_surcharge ?? null} />
+          <NumField name="holiday_surcharge" label="휴일할증" dv={p?.holiday_surcharge ?? null} />
+          <NumField name="dispatch_surcharge" label="수배할증" dv={p?.dispatch_surcharge ?? null} />
+        </div>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input type="checkbox" name="dispatch_surcharge_approval" defaultChecked={p?.dispatch_surcharge_approval ?? false} />
+          <span>수배할증 사전 승인 필요(자동 반영 금지)</span>
+        </label>
+      </div>
+
+      <div>
+        <div className="text-sm font-semibold mb-2">작업/부대비용</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <NumField name="load_fee" label="상차작업비" dv={p?.load_fee ?? null} />
+          <NumField name="unload_fee" label="하차작업비" dv={p?.unload_fee ?? null} />
+          <NumField name="wait_fee" label="대기료" dv={p?.wait_fee ?? null} />
+          <NumField name="parking_fee" label="주차비" dv={p?.parking_fee ?? null} />
+        </div>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input type="checkbox" name="toll_included" defaultChecked={p?.toll_included ?? false} />
+          <span>톨비 반영</span>
+        </label>
+        <label className="mt-2 block text-xs">
+          <span className={subLabel}>외곽/시골/골프장/산길 특수할증(여부·내용)</span>
+          <input name="special_surcharge_note" defaultValue={p?.special_surcharge_note ?? ""} className={`mt-1 ${input}`} />
+        </label>
+      </div>
+
+      <div>
+        <div className="text-sm font-semibold mb-2">차종별 운임</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {VEHICLE_TYPES.map((t) => (
+            <NumField key={t} name={`vr_${t}`} label={t} dv={p?.vehicle_rates?.[t] ?? null} />
+          ))}
+        </div>
+      </div>
+
+      <label className="block text-xs">
+        <span className={subLabel}>예외 규칙(자유 입력 — 여의도 별도권역, 목포 추가요금, 진이면 마산리 +5천, 휴일+야간 중복할증 금지 등)</span>
+        <textarea name="exceptions" rows={4} defaultValue={p?.exceptions ?? ""} className={`mt-1 ${input}`} />
+      </label>
+      <label className="block text-xs">
+        <span className={subLabel}>메모</span>
+        <textarea name="notes" rows={2} defaultValue={p?.notes ?? ""} className={`mt-1 ${input}`} />
+      </label>
+
+      <div className="flex items-center gap-2">
+        <button type="submit" disabled={pending} className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2 disabled:opacity-50">
+          {pending ? "저장 중…" : "운임 정책 저장"}
+        </button>
+        <Msg result={result} />
+      </div>
+    </form>
+  );
+}
+
+// ── AI 업무규칙 ───────────────────────────────────────────────────────
+function RulesTab({ clientId, rules }: { clientId: string; rules: ClientRule[] }) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+        {rules.length === 0 && (
+          <div className="p-4 text-sm text-slate-400">
+            등록된 업무규칙이 없습니다. 거래처별 예외 규칙을 추가하면 논사원 AI가 답변/운임/배차 초안에 참고합니다.
+          </div>
+        )}
+        {rules.map((r) => (
+          <RuleItem key={r.id} clientId={clientId} rule={r} />
+        ))}
+      </div>
+      <RuleForm clientId={clientId} />
+    </div>
+  );
+}
+
+function RuleItem({ clientId, rule }: { clientId: string; rule: ClientRule }) {
+  const router = useRouter();
+  const [edit, setEdit] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  function del() {
+    if (!confirm(`규칙 '${rule.name}'을(를) 삭제할까요?`)) return;
+    startTransition(async () => {
+      await deactivateRuleAction(rule.id, clientId);
+      router.refresh();
+    });
+  }
+
+  if (edit) {
+    return (
+      <div className="p-3">
+        <RuleForm clientId={clientId} rule={rule} onDone={() => setEdit(false)} />
+      </div>
+    );
+  }
+  return (
+    <div className="p-3.5 text-sm">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5">{rule.rule_type}</span>
+        <span className="font-medium">{rule.name}</span>
+        {!rule.is_enabled && <span className="text-[11px] rounded-full bg-zinc-200 text-zinc-600 px-2 py-0.5">미사용</span>}
+        {rule.needs_review && <span className="text-[11px] rounded-full bg-rose-100 text-rose-700 px-2 py-0.5">직원확인</span>}
+        <span className="text-[11px] text-slate-400">우선순위 {rule.priority}</span>
+        <div className="ml-auto flex gap-1">
+          <button onClick={() => setEdit(true)} className="text-xs text-slate-500 hover:text-slate-900 px-2 py-1">수정</button>
+          <button onClick={del} disabled={pending} className="text-xs text-rose-500 hover:text-rose-700 px-2 py-1 disabled:opacity-50">삭제</button>
+        </div>
+      </div>
+      {rule.condition && <div className="mt-1 text-xs text-slate-500">조건: {rule.condition}</div>}
+      {rule.content && <div className="mt-0.5 text-sm text-slate-700">{rule.content}</div>}
+      {rule.example && <div className="mt-0.5 text-xs text-slate-400">예: {rule.example}</div>}
+    </div>
+  );
+}
+
+function RuleForm({ clientId, rule, onDone }: { clientId: string; rule?: ClientRule; onDone?: () => void }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<ActionResult | null>(null);
+
+  function submit(fd: FormData) {
+    startTransition(async () => {
+      const r = rule ? await updateRuleAction(rule.id, clientId, fd) : await createRuleAction(clientId, fd);
+      setResult(r);
+      if (r.ok) {
+        router.refresh();
+        onDone?.();
+        if (!rule) (document.getElementById(`rform-${clientId}`) as HTMLFormElement)?.reset();
+      }
+    });
+  }
+
+  return (
+    <form id={rule ? undefined : `rform-${clientId}`} action={submit} className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+      {!rule && <div className="text-sm font-semibold">업무규칙 추가</div>}
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className={labelCls}>
+          <span className={subLabel}>규칙명 *</span>
+          <input name="name" required defaultValue={rule?.name ?? ""} className={`mt-1 ${input}`} />
+        </label>
+        <label className={labelCls}>
+          <span className={subLabel}>규칙 유형</span>
+          <select name="rule_type" defaultValue={rule?.rule_type ?? "기타"} className={`mt-1 ${input} bg-white`}>
+            {RULE_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label className={labelCls}>
+        <span className={subLabel}>적용 조건</span>
+        <input name="condition" defaultValue={rule?.condition ?? ""} placeholder="예: 수배할증 발생 시" className={`mt-1 ${input}`} />
+      </label>
+      <label className={labelCls}>
+        <span className={subLabel}>적용 내용</span>
+        <textarea name="content" rows={2} defaultValue={rule?.content ?? ""} placeholder="예: 고객 승인 후에만 수배할증 청구" className={`mt-1 ${input}`} />
+      </label>
+      <label className={labelCls}>
+        <span className={subLabel}>예시</span>
+        <input name="example" defaultValue={rule?.example ?? ""} className={`mt-1 ${input}`} />
+      </label>
+      <div className="flex items-center gap-4 flex-wrap">
+        <label className="block text-xs">
+          <span className={subLabel}>우선순위</span>
+          <input type="number" name="priority" defaultValue={rule?.priority ?? 0} className={`mt-1 ${input} w-24`} />
+        </label>
+        <label className="flex items-center gap-2 text-sm mt-4">
+          <input type="checkbox" name="is_enabled" defaultChecked={rule?.is_enabled ?? true} />
+          <span>사용</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm mt-4">
+          <input type="checkbox" name="needs_review" defaultChecked={rule?.needs_review ?? false} />
+          <span>직원 확인 필요</span>
+        </label>
+      </div>
+      <div className="flex items-center gap-2">
+        <button type="submit" disabled={pending} className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2 disabled:opacity-50">
+          {pending ? "저장 중…" : rule ? "저장" : "추가"}
+        </button>
+        {rule && onDone && (
+          <button type="button" onClick={onDone} className="rounded-lg border border-slate-300 text-sm px-4 py-2 hover:bg-slate-50">취소</button>
+        )}
+        <Msg result={result} />
+      </div>
+    </form>
   );
 }

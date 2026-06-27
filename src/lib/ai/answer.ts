@@ -178,6 +178,8 @@ export interface AnswerContextExtras {
   faqText?: string | null;
   // 거래처 구분 힌트(주거래처/일반/신규후보)
   modeHint?: string | null;
+  // 이 거래처의 AI 업무규칙(예외/운임/응대 규칙) — 반드시 우선 준수
+  rulesText?: string | null;
 }
 
 export async function generateAnswer(
@@ -190,6 +192,11 @@ export async function generateAnswer(
 
   const priorBlocks: string[] = [];
   if (extras.modeHint) priorBlocks.push(`[거래처 구분] ${extras.modeHint}`);
+  if (extras.rulesText) {
+    priorBlocks.push(
+      `=== 이 거래처 업무규칙(반드시 우선 준수 — 운임/경유/할인/수배할증/응대 예외) ===\n${extras.rulesText}\n=== 업무규칙 끝 ===`,
+    );
+  }
   if (extras.knowledgeText) {
     priorBlocks.push(
       `=== 이 거래처 지식베이스(우선 근거) ===\n${extras.knowledgeText}\n=== 지식베이스 끝 ===`,

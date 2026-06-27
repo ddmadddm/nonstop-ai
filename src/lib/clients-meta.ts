@@ -43,6 +43,33 @@ export const ADDRESS_CATEGORIES = [
 // 주소 확인 상태
 export const ADDRESS_VERIFY = ["확인완료", "확인필요"] as const;
 
+// 차종(차종별 운임)
+export const VEHICLE_TYPES = [
+  "오토바이",
+  "다마스",
+  "라보",
+  "1톤",
+  "2.5톤",
+  "5톤",
+  "냉탑",
+  "윙바디",
+  "리프트",
+  "어부바차",
+  "카캐리어",
+] as const;
+
+// AI 업무규칙 유형
+export const RULE_TYPES = [
+  "운임",
+  "경유",
+  "할인",
+  "수배할증",
+  "정산",
+  "고객응대",
+  "배차",
+  "기타",
+] as const;
+
 // 상담 유입 채널(6종)
 export const INBOUND_CHANNELS = [
   "카카오채널",

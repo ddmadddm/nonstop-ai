@@ -19,6 +19,15 @@ import {
   type AddressUsage,
 } from "@/lib/db/clients";
 import { buildClientKnowledge } from "@/lib/db/knowledge";
+import {
+  savePricingPolicy,
+  createRule,
+  updateRule,
+  deactivateRule,
+  type PricingInput,
+  type RuleInput,
+} from "@/lib/db/client-policy";
+import { VEHICLE_TYPES } from "@/lib/clients-meta";
 import { getActorName } from "@/lib/auth";
 
 export interface ActionResult {
@@ -346,6 +355,90 @@ export async function rejectCandidateAction(id: string): Promise<ActionResult> {
     await rejectCandidate(id, await actor());
     revalidatePath("/clients");
     return { ok: true, message: "후보를 무시했습니다." };
+  } catch (e) {
+    return { ok: false, message: `처리 실패: ${(e as Error).message}` };
+  }
+}
+
+// ── 운임/요금 정책 ───────────────────────────────────────────────────
+export async function savePricingAction(clientId: string, fd: FormData): Promise<ActionResult> {
+  try {
+    const vehicle_rates: Record<string, number> = {};
+    for (const t of VEHICLE_TYPES) {
+      const v = num(fd, `vr_${t}`);
+      if (v != null) vehicle_rates[t] = v;
+    }
+    const input: PricingInput = {
+      base_fare: num(fd, "base_fare"),
+      discount_rate: num(fd, "discount_rate"),
+      via_same_gu: num(fd, "via_same_gu"),
+      via_other_gu: num(fd, "via_other_gu"),
+      via_other_city: num(fd, "via_other_city"),
+      night_surcharge: num(fd, "night_surcharge"),
+      holiday_surcharge: num(fd, "holiday_surcharge"),
+      dispatch_surcharge: num(fd, "dispatch_surcharge"),
+      dispatch_surcharge_approval: bool(fd, "dispatch_surcharge_approval"),
+      load_fee: num(fd, "load_fee"),
+      unload_fee: num(fd, "unload_fee"),
+      wait_fee: num(fd, "wait_fee"),
+      parking_fee: num(fd, "parking_fee"),
+      toll_included: bool(fd, "toll_included"),
+      special_surcharge_note: str(fd, "special_surcharge_note"),
+      vehicle_rates,
+      exceptions: str(fd, "exceptions"),
+      notes: str(fd, "notes"),
+    };
+    await savePricingPolicy(clientId, input, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "운임 정책을 저장했습니다." };
+  } catch (e) {
+    return { ok: false, message: `저장 실패: ${(e as Error).message}` };
+  }
+}
+
+// ── AI 업무규칙 ───────────────────────────────────────────────────────
+function parseRule(fd: FormData): RuleInput {
+  return {
+    name: str(fd, "name") ?? "",
+    rule_type: str(fd, "rule_type"),
+    condition: str(fd, "condition"),
+    content: str(fd, "content"),
+    example: str(fd, "example"),
+    priority: num(fd, "priority") ?? 0,
+    is_enabled: bool(fd, "is_enabled"),
+    needs_review: bool(fd, "needs_review"),
+  };
+}
+
+export async function createRuleAction(clientId: string, fd: FormData): Promise<ActionResult> {
+  try {
+    const input = parseRule(fd);
+    if (!input.name) return { ok: false, message: "규칙명을 입력하세요." };
+    await createRule(clientId, input, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "업무규칙을 추가했습니다." };
+  } catch (e) {
+    return { ok: false, message: `추가 실패: ${(e as Error).message}` };
+  }
+}
+
+export async function updateRuleAction(id: string, clientId: string, fd: FormData): Promise<ActionResult> {
+  try {
+    const input = parseRule(fd);
+    if (!input.name) return { ok: false, message: "규칙명을 입력하세요." };
+    await updateRule(id, input, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "저장했습니다." };
+  } catch (e) {
+    return { ok: false, message: `저장 실패: ${(e as Error).message}` };
+  }
+}
+
+export async function deactivateRuleAction(id: string, clientId: string): Promise<ActionResult> {
+  try {
+    await deactivateRule(id, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "규칙을 삭제했습니다." };
   } catch (e) {
     return { ok: false, message: `처리 실패: ${(e as Error).message}` };
   }
