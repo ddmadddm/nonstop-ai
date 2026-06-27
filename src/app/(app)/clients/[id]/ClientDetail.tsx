@@ -24,8 +24,10 @@ import {
   RULE_TYPES,
   DOC_TYPES,
 } from "@/lib/clients-meta";
+import type { RateSheet, RateItem } from "@/lib/db/pricing";
 import MatchCandidates from "../MatchCandidates";
 import RelationshipField from "./RelationshipField";
+import RateSheetSection from "./RateSheetSection";
 import {
   updateClientAction,
   createContactAction,
@@ -95,6 +97,8 @@ export default function ClientDetail({
   settlements,
   documents,
   relationshipOptions,
+  rateSheets,
+  rateItems,
 }: {
   client: Client;
   contacts: ClientContact[];
@@ -110,6 +114,8 @@ export default function ClientDetail({
   settlements: Settlement[];
   documents: ClientDocument[];
   relationshipOptions: { value: string; label: string }[];
+  rateSheets: RateSheet[];
+  rateItems: Record<string, RateItem[]>;
 }) {
   const pendingCount = candidates.filter((c) => c.status === "pending").length;
   const TABS: { key: TabKey; label: string; badge?: number }[] = [
@@ -158,7 +164,9 @@ export default function ClientDetail({
           addresses={addresses}
         />
       )}
-      {tab === "pricing" && <PricingTab clientId={client.id} pricing={pricing} />}
+      {tab === "pricing" && (
+        <PricingTab clientId={client.id} pricing={pricing} rateSheets={rateSheets} rateItems={rateItems} />
+      )}
       {tab === "rules" && <RulesTab clientId={client.id} rules={rules} />}
       {tab === "history" && <HistoryTab consultations={consultations} drafts={drafts} />}
       {tab === "dispatch" && <DispatchTab clientId={client.id} dispatches={dispatches} />}
@@ -1128,7 +1136,12 @@ function NumField({ name, label, dv }: { name: string; label: string; dv: number
   );
 }
 
-function PricingTab({ clientId, pricing }: { clientId: string; pricing: PricingPolicy | null }) {
+function PricingTab({
+  clientId, pricing, rateSheets, rateItems,
+}: {
+  clientId: string; pricing: PricingPolicy | null;
+  rateSheets: RateSheet[]; rateItems: Record<string, RateItem[]>;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<ActionResult | null>(null);
@@ -1143,6 +1156,8 @@ function PricingTab({ clientId, pricing }: { clientId: string; pricing: PricingP
   }
 
   return (
+    <div className="space-y-4">
+    <RateSheetSection clientId={clientId} sheets={rateSheets} itemsBySheet={rateItems} />
     <form action={save} className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
       <div>
         <div className="text-sm font-semibold mb-2">기본 운임 / 할인</div>
@@ -1217,6 +1232,7 @@ function PricingTab({ clientId, pricing }: { clientId: string; pricing: PricingP
         <Msg result={result} />
       </div>
     </form>
+    </div>
   );
 }
 

@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/clients";
 import { getClientKnowledge } from "@/lib/db/knowledge";
 import { getPricingPolicy, listRules } from "@/lib/db/client-policy";
+import { listRateSheets, listRateItems } from "@/lib/db/pricing";
 import { listDispatches, listSettlements, listDocuments } from "@/lib/db/client-records";
 import { listClientDrafts } from "@/lib/db/assistant";
 import { listOptions } from "@/lib/db/client-options";
@@ -44,6 +45,9 @@ export default async function ClientDetailPage({
     listDocuments(id),
   ]);
   const relOptions = (await listOptions("relationship")).map((o) => ({ value: o.value, label: o.label }));
+  const rateSheets = await listRateSheets(id);
+  const rateItems: Record<string, Awaited<ReturnType<typeof listRateItems>>> = {};
+  await Promise.all(rateSheets.map(async (s) => { rateItems[s.id] = await listRateItems(s.id); }));
   const clientOptions = all.map((c) => ({ id: c.id, name: c.name }));
 
   return (
@@ -69,6 +73,8 @@ export default async function ClientDetailPage({
         settlements={settlements}
         documents={documents}
         relationshipOptions={relOptions}
+        rateSheets={rateSheets}
+        rateItems={rateItems}
       />
     </div>
   );

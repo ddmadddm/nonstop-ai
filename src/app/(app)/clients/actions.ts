@@ -39,6 +39,15 @@ import {
   createDocument,
   deactivateDocument,
 } from "@/lib/db/client-records";
+import {
+  createRateSheet,
+  setRateSheetStatus,
+  deactivateRateSheet,
+  createRateItem,
+  deactivateRateItem,
+} from "@/lib/db/pricing";
+import { saveOriginalFile } from "@/lib/storage";
+import { createHash } from "node:crypto";
 import { VEHICLE_TYPES, DOC_TYPES } from "@/lib/clients-meta";
 import { getActorName } from "@/lib/auth";
 
@@ -676,6 +685,60 @@ export async function deactivateDocumentAction(id: string, clientId: string): Pr
   } catch (e) {
     return { ok: false, message: `처리 실패: ${(e as Error).message}` };
   }
+}
+
+// ── 거래처 단가표(원본 보관 + 표준화 항목) ──────────────────────────
+export async function uploadRateSheetAction(clientId: string, fd: FormData): Promise<ActionResult> {
+  try {
+    const title = str(fd, "title");
+    if (!title) return { ok: false, message: "단가표명을 입력하세요." };
+    const file = fd.get("file");
+    let fileName: string | null = null;
+    let storedPath: string | null = null;
+    if (file instanceof File && file.size > 0) {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+      if (!["xlsx", "xls", "csv"].includes(ext)) return { ok: false, message: "xlsx·xls·csv 파일만 가능합니다." };
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const hash = createHash("sha256").update(buffer).digest("hex");
+      storedPath = await saveOriginalFile(buffer, `rate_${hash}`, ext); // 원본 보관
+      fileName = file.name;
+    }
+    await createRateSheet(clientId, {
+      title, file_name: fileName, stored_path: storedPath,
+      origin_base_area: str(fd, "origin_base_area"),
+      effective_from: str(fd, "effective_from"),
+      memo: str(fd, "memo"),
+    }, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "단가표를 등록했습니다(원본 보관)." };
+  } catch (e) {
+    return { ok: false, message: `등록 실패: ${(e as Error).message}` };
+  }
+}
+export async function setRateSheetStatusAction(id: string, clientId: string, status: "draft" | "active" | "archived"): Promise<ActionResult> {
+  try { await setRateSheetStatus(id, status, await actor()); revalidatePath(`/clients/${clientId}`); return { ok: true, message: "상태 변경" }; }
+  catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+export async function deactivateRateSheetAction(id: string, clientId: string): Promise<ActionResult> {
+  try { await deactivateRateSheet(id, await actor()); revalidatePath(`/clients/${clientId}`); return { ok: true, message: "삭제" }; }
+  catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+export async function addRateItemAction(rateSheetId: string, clientId: string, fd: FormData): Promise<ActionResult> {
+  try {
+    await createRateItem(rateSheetId, clientId, {
+      origin_area: str(fd, "origin_area"), destination_area: str(fd, "destination_area"), vehicle_type: str(fd, "vehicle_type"),
+      normal_price: num(fd, "normal_price"), discounted_price: num(fd, "discounted_price"), competitive_price: num(fd, "competitive_price"),
+      billing_price: num(fd, "billing_price"), driver_price_reference: num(fd, "driver_price_reference"),
+      stopover_rule: str(fd, "stopover_rule"), surcharge_rule: str(fd, "surcharge_rule"),
+      memo: str(fd, "memo"), requires_review: bool(fd, "requires_review"),
+    }, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "단가 항목 추가" };
+  } catch (e) { return { ok: false, message: `추가 실패: ${(e as Error).message}` }; }
+}
+export async function deactivateRateItemAction(id: string, clientId: string): Promise<ActionResult> {
+  try { await deactivateRateItem(id, await actor()); revalidatePath(`/clients/${clientId}`); return { ok: true, message: "삭제" }; }
+  catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 
 // ── ⑦ 거래처 지식베이스 ─────────────────────────────────────────────
