@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/clients";
 import { getClientKnowledge } from "@/lib/db/knowledge";
 import { getPricingPolicy, listRules } from "@/lib/db/client-policy";
+import { listClientDrafts } from "@/lib/db/assistant";
 import ClientDetail from "./ClientDetail";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function ClientDetailPage({
   const client = await getClient(id);
   if (!client) notFound();
 
-  const [contacts, addresses, consultations, candidates, all, knowledge, pricing, rules] =
+  const [contacts, addresses, consultations, candidates, all, knowledge, pricing, rules, drafts] =
     await Promise.all([
       listContacts(id),
       listAddresses(id),
@@ -33,6 +34,7 @@ export default async function ClientDetailPage({
       getClientKnowledge(id),
       getPricingPolicy(id),
       listRules(id),
+      listClientDrafts(id),
     ]);
   const clientOptions = all.map((c) => ({ id: c.id, name: c.name }));
 
@@ -54,6 +56,7 @@ export default async function ClientDetailPage({
         knowledge={knowledge}
         pricing={pricing}
         rules={rules}
+        drafts={drafts}
       />
     </div>
   );

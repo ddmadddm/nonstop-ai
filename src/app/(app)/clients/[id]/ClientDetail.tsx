@@ -12,6 +12,7 @@ import type {
 } from "@/lib/db/clients";
 import type { ClientKnowledge } from "@/lib/db/knowledge";
 import type { PricingPolicy, ClientRule } from "@/lib/db/client-policy";
+import type { ClientDraft } from "@/lib/db/assistant";
 import {
   CLIENT_TYPES,
   PAYMENT_METHODS,
@@ -71,6 +72,7 @@ export default function ClientDetail({
   knowledge,
   pricing,
   rules,
+  drafts,
 }: {
   client: Client;
   contacts: ClientContact[];
@@ -81,6 +83,7 @@ export default function ClientDetail({
   knowledge: ClientKnowledge | null;
   pricing: PricingPolicy | null;
   rules: ClientRule[];
+  drafts: ClientDraft[];
 }) {
   const pendingCount = candidates.filter((c) => c.status === "pending").length;
   const TABS: { key: TabKey; label: string; badge?: number }[] = [
@@ -89,7 +92,7 @@ export default function ClientDetail({
     { key: "addresses", label: `주소록 ${addresses.length}` },
     { key: "pricing", label: "운임·요금" },
     { key: "rules", label: `AI 업무규칙 ${rules.length}` },
-    { key: "history", label: `상담이력 ${consultations.length}` },
+    { key: "history", label: `상담이력 ${consultations.length + drafts.length}` },
     { key: "match", label: "AI 매칭", badge: pendingCount },
     { key: "knowledge", label: "지식베이스" },
   ];
@@ -128,7 +131,7 @@ export default function ClientDetail({
       )}
       {tab === "pricing" && <PricingTab clientId={client.id} pricing={pricing} />}
       {tab === "rules" && <RulesTab clientId={client.id} rules={rules} />}
-      {tab === "history" && <HistoryTab consultations={consultations} />}
+      {tab === "history" && <HistoryTab consultations={consultations} drafts={drafts} />}
       {tab === "match" && (
         <div className="rounded-xl border border-slate-200 bg-white">
           <div className="px-4 py-2.5 border-b border-slate-100 text-sm font-semibold">
@@ -983,29 +986,96 @@ function AddressForm({
 }
 
 // ── 상담이력 ─────────────────────────────────────────────────────────
-function HistoryTab({ consultations }: { consultations: ClientConsultation[] }) {
+//   ① 논사원 답변 기록(assistant_drafts) + 주소 변환 결과  ② 매칭된 상담자료
+function pricingOf(addr: Record<string, unknown> | null, side: "origin" | "destination"): string | null {
+  const s = (addr?.[side] as Record<string, unknown> | undefined) ?? null;
+  return (s?.pricing_area as string) ?? null;
+}
+
+function HistoryTab({
+  consultations,
+  drafts,
+}: {
+  consultations: ClientConsultation[];
+  drafts: ClientDraft[];
+}) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
-      {consultations.length === 0 && (
-        <div className="p-4 text-sm text-slate-400">
-          이 거래처로 확정된 상담이 없습니다. AI 매칭에서 상담을 거래처에 연결하면 여기에 표시됩니다.
+    <div className="space-y-4">
+      {/* 논사원 답변 기록 */}
+      <section className="rounded-xl border border-slate-200 bg-white">
+        <div className="px-4 py-2 border-b border-slate-100 text-sm font-semibold">
+          논사원 답변 <span className="text-slate-400 font-normal">({drafts.length})</span>
         </div>
-      )}
-      {consultations.map((cv) => (
-        <Link
-          key={cv.conversation_id}
-          href={`/chatlogs/${cv.conversation_id}`}
-          className="block p-3.5 hover:bg-slate-50"
-        >
-          <div className="font-medium text-sm truncate">
-            {cv.title ?? "상담"}
+        {drafts.length === 0 ? (
+          <p className="p-4 text-sm text-slate-400">이 거래처로 인식된 논사원 답변이 없습니다.</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {drafts.map((d) => {
+              const oArea = pricingOf(d.address_conversion, "origin");
+              const dArea = pricingOf(d.address_conversion, "destination");
+              return (
+                <Link key={d.id} href={`/assistant/${d.id}`} className="block p-3.5 hover:bg-slate-50">
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <span>{d.created_at.slice(0, 10)}</span>
+                    {d.client_mode && (
+                      <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5">{d.client_mode}</span>
+                    )}
+                    {d.answer_final && (
+                      <span className="rounded-full bg-emerald-100 text-emerald-700 px-1.5 py-0.5">수정본</span>
+                    )}
+                    <span className="ml-auto">{d.status}</span>
+                  </div>
+                  <div className="mt-1 text-sm font-medium truncate">{d.question}</div>
+                  <div className="text-xs text-slate-500 truncate">
+                    {(d.answer_final ?? d.answer_draft ?? "").replace(/\n/g, " ")}
+                  </div>
+                  {(oArea || dArea) && (
+                    <div className="mt-0.5 text-[11px] text-sky-700">
+                      가격표 기준: {oArea ?? "—"} → {dArea ?? "—"}
+                    </div>
+                  )}
+                </Link>
+              );
+            })}
           </div>
-          <div className="text-xs text-slate-400">
-            {[cv.origin, cv.destination].filter(Boolean).join(" → ")}
-            {cv.resolved_at ? ` · ${cv.resolved_at.slice(0, 10)}` : ""}
+        )}
+      </section>
+
+      {/* 매칭된 상담자료 */}
+      <section className="rounded-xl border border-slate-200 bg-white">
+        <div className="px-4 py-2 border-b border-slate-100 text-sm font-semibold">
+          매칭 상담자료 <span className="text-slate-400 font-normal">({consultations.length})</span>
+        </div>
+        {consultations.length === 0 ? (
+          <p className="p-4 text-sm text-slate-400">
+            이 거래처로 확정된 상담자료가 없습니다. AI 매칭에서 상담을 거래처에 연결하면 표시됩니다.
+          </p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {consultations.map((cv) => (
+              <Link
+                key={cv.conversation_id}
+                href={`/chatlogs/${cv.conversation_id}`}
+                className="block p-3.5 hover:bg-slate-50"
+              >
+                <div className="font-medium text-sm truncate">{cv.title ?? "상담"}</div>
+                <div className="text-xs text-slate-400">
+                  {[cv.origin, cv.destination].filter(Boolean).join(" → ")}
+                  {cv.resolved_at ? ` · ${cv.resolved_at.slice(0, 10)}` : ""}
+                </div>
+                {(cv.origin_pricing_area || cv.destination_pricing_area) && (
+                  <div className="text-[11px] text-sky-700">
+                    가격표 기준: {cv.origin_pricing_area ?? "—"} → {cv.destination_pricing_area ?? "—"}
+                    {cv.address_status === "needs_review" && (
+                      <span className="ml-1 text-rose-600">· 주소 확인 필요</span>
+                    )}
+                  </div>
+                )}
+              </Link>
+            ))}
           </div>
-        </Link>
-      ))}
+        )}
+      </section>
     </div>
   );
 }

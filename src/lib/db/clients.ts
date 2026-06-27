@@ -553,6 +553,9 @@ export interface ClientConsultation {
   client_name: string | null;
   origin: string | null;
   destination: string | null;
+  origin_pricing_area: string | null; // 주소 변환 결과(가격표 기준)
+  destination_pricing_area: string | null;
+  address_status: string | null; // resolved | needs_review …
   resolved_at: string | null;
 }
 export async function getClientConsultations(
@@ -561,7 +564,9 @@ export async function getClientConsultations(
   const rows = await sql<(Omit<ClientConsultation, "resolved_at"> & { resolved_at: Date | null })[]>`
     select distinct on (cv.id)
            cv.id as conversation_id, cv.title,
-           e.client_name, e.origin, e.destination, m.resolved_at
+           e.client_name, e.origin, e.destination,
+           e.origin_pricing_area, e.destination_pricing_area,
+           e.address_conversion_status as address_status, m.resolved_at
     from client_match_candidates m
     join conversations cv on cv.id = m.conversation_id
     left join conversation_extractions e

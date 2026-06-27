@@ -324,6 +324,28 @@ export interface DraftDetail extends DraftRow {
   address_conversion: Record<string, unknown> | null;
 }
 
+// ── 거래처 상담이력 — 이 거래처로 인식된 논사원 답변 기록 ─────────────
+export interface ClientDraft {
+  id: string;
+  created_at: string;
+  client_mode: string | null;
+  question: string;
+  answer_draft: string | null;
+  answer_final: string | null;
+  status: string;
+  address_conversion: Record<string, unknown> | null;
+}
+export async function listClientDrafts(clientId: string): Promise<ClientDraft[]> {
+  const rows = await sql<(Omit<ClientDraft, "created_at"> & { created_at: Date })[]>`
+    select d.id, d.created_at, d.client_mode, d.question, d.answer_draft, d.answer_final,
+           d.status, d.address_conversion
+    from assistant_drafts d
+    where d.is_active and d.recognized_client_id = ${clientId}
+    order by d.created_at desc
+    limit 50`;
+  return rows.map((r) => ({ ...r, created_at: r.created_at.toISOString() }));
+}
+
 export async function getDraftDetail(id: string): Promise<DraftDetail | null> {
   const rows = await sql<(Omit<DraftDetail, "created_at"> & { created_at: Date })[]>`
     select d.id, d.created_at, d.requested_mode, d.client_mode, d.client_name, d.manager_name,
