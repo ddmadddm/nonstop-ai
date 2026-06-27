@@ -410,8 +410,8 @@ export default function AnswerForm() {
             <AddressInternalCard addresses={res.addressConversion} />
           )}
 
-          {/* ②-3 요금 초안 — 직원 확인용 */}
-          {res.priceDraft && <PriceDraftCard price={res.priceDraft} />}
+          {/* ②-3 요금 초안 — 직원 확인·수정 */}
+          {res.priceDraft && <PriceDraftCard price={res.priceDraft} draftId={res.draftId} />}
 
           {/* ③ 참고한 과거 상담 출처 */}
           <div className="rounded-xl border border-slate-200 bg-white">

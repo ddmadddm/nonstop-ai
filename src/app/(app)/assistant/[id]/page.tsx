@@ -112,8 +112,8 @@ export default async function DraftDetailPage({
         addresses={(d.address_conversion as unknown as ExtractionAddresses | null) ?? null}
       />
 
-      {/* 요금 초안 — 직원 확인용 */}
-      <PriceDraftCard price={(d.price_draft as unknown as PriceDraft | null) ?? null} />
+      {/* 요금 초안 — 직원 확인·수정 */}
+      <PriceDraftCard price={(d.price_draft as unknown as PriceDraft | null) ?? null} draftId={d.id} />
 
       {/* 수정본이 있으면 AI 원본 초안도 함께(비교/학습용) */}
       {d.answer_final && d.answer_draft && d.answer_final !== d.answer_draft && (

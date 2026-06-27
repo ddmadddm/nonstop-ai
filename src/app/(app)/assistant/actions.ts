@@ -5,6 +5,8 @@ import {
   retrieveContext,
   saveDraft,
   updateDraftAnswer,
+  updateDraftPrice,
+  getDraftDetail,
   findClientInText,
   saveProspect,
 } from "@/lib/db/assistant";
@@ -248,6 +250,43 @@ export async function generateAnswerAction(
     };
   } catch (e) {
     return { ok: false, message: `답변 생성 실패: ${(e as Error).message}` };
+  }
+}
+
+// 직원이 수정한 요금 초안을 저장(기억)한다. 산출 메타(기준/근거)는 유지하고 금액/검수/메모만 갱신.
+export async function savePriceDraftAction(
+  draftId: string,
+  fd: FormData,
+): Promise<{ ok: boolean; message: string }> {
+  if (!draftId) return { ok: false, message: "저장할 답변 기록을 찾지 못했습니다." };
+  try {
+    const d = await getDraftDetail(draftId);
+    const prev = (d?.price_draft ?? {}) as Record<string, unknown>;
+    const numOrNull = (k: string) => {
+      const v = fd.get(k);
+      const s = typeof v === "string" ? v.trim() : "";
+      return s === "" ? null : Number.isFinite(Number(s)) ? Number(s) : null;
+    };
+    const merged: PriceDraft = {
+      source: (prev.source as string) ?? "직원 입력",
+      selectedRuleType: (prev.selectedRuleType as string) ?? "manual",
+      confidence: typeof prev.confidence === "number" ? prev.confidence : 1,
+      warnings: Array.isArray(prev.warnings) ? (prev.warnings as string[]) : [],
+      basePrice: numOrNull("base_price"),
+      surchargeTotal: numOrNull("surcharge_total") ?? 0,
+      discountAmount: numOrNull("discount_amount") ?? 0,
+      suggestedPrice: numOrNull("suggested_price"),
+      requiresReview: fd.get("requires_review") === "true",
+      memo: typeof fd.get("memo") === "string" ? (fd.get("memo") as string).trim() || null : null,
+      edited: true,
+    };
+    const ok = await updateDraftPrice(draftId, merged, (await getActorName()) ?? undefined);
+    if (!ok) return { ok: false, message: "답변 기록을 찾지 못했습니다." };
+    revalidatePath("/assistant");
+    revalidatePath(`/assistant/${draftId}`);
+    return { ok: true, message: "요금 초안을 저장했습니다." };
+  } catch (e) {
+    return { ok: false, message: `저장 실패: ${(e as Error).message}` };
   }
 }
 

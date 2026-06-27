@@ -15,6 +15,8 @@ export interface PriceDraft {
   requiresReview: boolean;
   warnings: string[];
   source: string;
+  memo?: string | null; // 직원 메모
+  edited?: boolean; // 직원이 수정·저장함(기억됨)
 }
 
 // 거래처 구분(라디오) — 직원 선택값

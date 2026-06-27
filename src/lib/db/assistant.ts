@@ -226,6 +226,21 @@ export async function saveDraft(input: SaveDraftInput): Promise<string> {
   return row.id;
 }
 
+// 요금 초안 직원 수정본 저장(기억) — assistant_drafts.price_draft 갱신.
+export async function updateDraftPrice(
+  id: string,
+  priceDraft: unknown,
+  byName?: string,
+): Promise<boolean> {
+  const by = await resolveAgentId(byName);
+  const rows = await sql<{ id: string }[]>`
+    update assistant_drafts
+       set price_draft = ${sql.json(priceDraft as Parameters<typeof sql.json>[0])}, updated_by = ${by}
+     where id = ${id} and is_active
+    returning id`;
+  return rows.length > 0;
+}
+
 // ── 1차 답변문 사람 수정본 저장(기억) ─────────────────────────────────
 //   원본 AI 초안(answer_draft)은 보존하고, 상담원이 고친 최종본을 answer_final 에 기억한다.
 //   status 를 'edited' 로 바꿔 목록/상세에 표시하고 추후 학습 신호로 활용한다.
