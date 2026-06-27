@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { uploadMaterialAction } from "./material-actions";
+import { uploadMaterialAction, type ClientMode } from "./material-actions";
 import { ACCEPT_ATTR, SUPPORTED_EXTENSIONS, detectMaterial } from "@/lib/convert/detect";
 
 type Phase = "queued" | "converting" | "extracting" | "done" | "failed";
@@ -15,10 +15,24 @@ interface Item {
 
 const KIND_ICON: Record<string, string> = { chat: "🗂️", audio: "🎙️", image: "🖼️", pdf: "📄" };
 
-export default function MaterialUploadForm({ defaultCreatedBy }: { defaultCreatedBy?: string }) {
+const MODE_OPTIONS: { value: ClientMode; label: string; hint: string }[] = [
+  { value: "auto", label: "자동분류", hint: "AI가 추출값으로 기존 거래처와 자동 매칭" },
+  { value: "existing", label: "기존 거래처 선택", hint: "선택한 거래처로 고정해 담당자/주소 매칭" },
+  { value: "new", label: "신규 거래처 후보", hint: "자동매칭 없이 신규 후보로 등록(직원 확인)" },
+];
+
+export default function MaterialUploadForm({
+  defaultCreatedBy,
+  clients = [],
+}: {
+  defaultCreatedBy?: string;
+  clients?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
   const [createdBy, setCreatedBy] = useState(defaultCreatedBy ?? "");
+  const [clientMode, setClientMode] = useState<ClientMode>("auto");
+  const [clientId, setClientId] = useState("");
   const [dragging, setDragging] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [pending, startTransition] = useTransition();
@@ -54,6 +68,8 @@ export default function MaterialUploadForm({ defaultCreatedBy }: { defaultCreate
         const fd = new FormData();
         fd.set("file", files[i], files[i].name);
         fd.set("created_by", createdBy);
+        fd.set("client_mode", clientMode);
+        if (clientMode === "existing" && clientId) fd.set("client_id", clientId);
         const r = await uploadMaterialAction(fd);
 
         if (!r.ok) {
@@ -64,10 +80,11 @@ export default function MaterialUploadForm({ defaultCreatedBy }: { defaultCreate
           continue;
         }
         const ow = r.overwritten ? "덮어쓰기·" : "";
+        const matchTag = r.matched ? " · 거래처 매칭 후보 생성" : "";
         const detail = r.extractionDeferred
           ? `${ow}원본 자료실에 보관(보관중) · 대형 채팅방은 추후 분석/분리/학습`
           : r.conversationId
-            ? `${ow}변환·추출 완료`
+            ? `${ow}변환·추출 완료${matchTag}`
             : `${ow}변환 완료`;
         setItem(i, { phase: "done", detail });
       }
@@ -130,6 +147,52 @@ export default function MaterialUploadForm({ defaultCreatedBy }: { defaultCreate
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
+      </div>
+
+      {/* 거래처 선택 — AI 추출값을 어떻게 매칭할지(기본: 자동분류) */}
+      <div className="space-y-2">
+        <div className="text-sm font-medium">거래처</div>
+        <div className="flex flex-wrap gap-2">
+          {MODE_OPTIONS.map((m) => (
+            <label
+              key={m.value}
+              title={m.hint}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm cursor-pointer ${
+                clientMode === m.value
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 hover:bg-slate-50"
+              }`}
+            >
+              <input
+                type="radio"
+                name="client_mode"
+                value={m.value}
+                checked={clientMode === m.value}
+                onChange={() => setClientMode(m.value)}
+                className="hidden"
+              />
+              {m.label}
+            </label>
+          ))}
+        </div>
+        {clientMode === "existing" && (
+          <select
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            className="w-full sm:w-80 rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+          >
+            <option value="">거래처를 선택하세요…</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        )}
+        <p className="text-xs text-slate-400">
+          {MODE_OPTIONS.find((m) => m.value === clientMode)?.hint}
+          {clientMode === "existing" && !clientId
+            ? " — 거래처 미선택 시 자동분류로 처리됩니다."
+            : ""}
+        </p>
       </div>
 
       <div className="flex items-center gap-3">

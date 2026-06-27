@@ -449,10 +449,19 @@ export async function listCandidatesForSegment(
 
 // 추출 결과(거래처명/담당자/연락처/출발지/도착지)를 기존 데이터와 매칭 → 후보 생성/갱신.
 //   segmentId 지정 시 해당 상담 단위의 추출/후보를 대상으로 한다(⑥).
+//   opts(업로드 시 거래처 선택 모드):
+//     · pinnedClientId : '기존 거래처 선택' — 거래처를 고정하고 담당자/주소를 그 범위에서 매칭
+//     · forceNew       : '신규 거래처 후보' — 자동매칭하지 않고 전부 신규 후보로 생성
+//     · (기본)          : '자동분류' — 이름/연락처 유사도로 자동 매칭
+export interface MatchOptions {
+  pinnedClientId?: string | null;
+  forceNew?: boolean;
+}
 export async function generateMatches(
   conversationId: string,
   byName?: string,
   segmentId: string | null = null,
+  opts: MatchOptions = {},
 ): Promise<MatchCandidate[]> {
   const by = await resolveAgentId(byName);
   const [ex] = await sql<
@@ -470,22 +479,42 @@ export async function generateMatches(
       and segment_id is not distinct from ${segmentId}`;
   if (!ex) throw new Error("추출 결과가 없습니다. 먼저 AI 추출을 실행하세요.");
 
-  // 1) 거래처 매칭(이름 유사도)
-  let matchedClientId: string | null = null;
+  // 1) 거래처 매칭 — 모드별 분기.
+  //   pinned: 선택한 거래처로 고정 / forceNew: 신규 후보 / 기본: 이름 유사도 자동매칭.
+  let matchedClientId: string | null =
+    !opts.forceNew && opts.pinnedClientId ? opts.pinnedClientId : null;
   if (ex.client_name) {
-    const [best] = await sql<{ id: string; score: number }[]>`
-      select id, similarity(name, ${ex.client_name}) as score
-      from clients where is_active
-      order by score desc limit 1`;
-    const score = best?.score ?? 0;
-    if (best && score >= SIMILAR_THRESHOLD) matchedClientId = best.id;
-    await upsertCandidate(conversationId, segmentId, "client", {
-      extracted_value: ex.client_name,
-      matched_client_id: matchedClientId,
-      match_score: best?.score ?? null,
-      match_type: classify(score),
-      by,
-    });
+    if (opts.forceNew) {
+      await upsertCandidate(conversationId, segmentId, "client", {
+        extracted_value: ex.client_name,
+        matched_client_id: null,
+        match_score: null,
+        match_type: "new",
+        by,
+      });
+    } else if (opts.pinnedClientId) {
+      await upsertCandidate(conversationId, segmentId, "client", {
+        extracted_value: ex.client_name,
+        matched_client_id: opts.pinnedClientId,
+        match_score: 1,
+        match_type: "exact",
+        by,
+      });
+    } else {
+      const [best] = await sql<{ id: string; score: number }[]>`
+        select id, similarity(name, ${ex.client_name}) as score
+        from clients where is_active
+        order by score desc limit 1`;
+      const score = best?.score ?? 0;
+      if (best && score >= SIMILAR_THRESHOLD) matchedClientId = best.id;
+      await upsertCandidate(conversationId, segmentId, "client", {
+        extracted_value: ex.client_name,
+        matched_client_id: matchedClientId,
+        match_score: best?.score ?? null,
+        match_type: classify(score),
+        by,
+      });
+    }
   }
 
   // 2) 담당자 매칭(이름/연락처) — 매칭된 거래처 범위 내

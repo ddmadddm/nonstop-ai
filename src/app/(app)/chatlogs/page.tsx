@@ -3,7 +3,7 @@ import Link from "next/link";
 import { listMaterials, getMaterialStats } from "@/lib/db/materials";
 import { getTrainingStats } from "@/lib/db/training";
 import { getConsultations } from "@/lib/db/consultations";
-import { getClients } from "@/lib/data";
+import { listClients } from "@/lib/db/clients";
 import { getActorName } from "@/lib/auth";
 import { displayStatus, STATUS_META } from "@/lib/materials-status";
 import { formatDateTime } from "@/lib/utils";
@@ -32,7 +32,7 @@ export default async function MaterialsPage() {
     getTrainingStats(),
     listMaterials(),
     getConsultations(),
-    getClients(),
+    listClients(),
     getActorName(),
   ]);
   const createdBy = actorName ?? "";
@@ -53,7 +53,10 @@ export default async function MaterialsPage() {
       </div>
 
       <h2 className="text-sm font-semibold">📁 파일 업로드</h2>
-      <MaterialUploadForm defaultCreatedBy={createdBy} />
+      <MaterialUploadForm
+        defaultCreatedBy={createdBy}
+        clients={clients.map((c) => ({ id: c.id, name: c.name }))}
+      />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Stat label="업로드 자료" value={stats.total} />
