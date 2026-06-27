@@ -6,6 +6,7 @@ import {
   saveExtractionEdits,
   confirmExtraction,
 } from "@/lib/db/extractions";
+import { resolveAndSaveExtractionAddresses } from "@/lib/db/addresses";
 import type { ExtractionFields } from "@/lib/ai/extract";
 import { getActorName } from "@/lib/auth";
 
@@ -24,12 +25,28 @@ export async function runExtractionAction(
   conversationId: string,
 ): Promise<ActionResult> {
   try {
-    await runExtraction(conversationId, await actor());
+    const by = await actor();
+    await runExtraction(conversationId, by);
+    // 추출된 출발지/도착지의 주소 변환(신/구/가격표)도 이어서 실행(best-effort).
+    await resolveAndSaveExtractionAddresses(conversationId, by).catch(() => {});
     revalidatePath(`/chatlogs/${conversationId}`);
     revalidatePath("/chatlogs");
     return { ok: true, message: "AI 추출 완료" };
   } catch (e) {
     return { ok: false, message: `추출 실패: ${(e as Error).message}` };
+  }
+}
+
+// 주소 변환만 단독 재실행(직원 확인용 '주소 변환' 버튼).
+export async function resolveAddressesAction(
+  conversationId: string,
+): Promise<ActionResult> {
+  try {
+    const r = await resolveAndSaveExtractionAddresses(conversationId, await actor());
+    revalidatePath(`/chatlogs/${conversationId}`);
+    return { ok: r.ok, message: r.message };
+  } catch (e) {
+    return { ok: false, message: `주소 변환 실패: ${(e as Error).message}` };
   }
 }
 

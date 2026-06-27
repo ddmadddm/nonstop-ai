@@ -9,8 +9,10 @@ import {
 } from "@/lib/db/extractions";
 import { listCandidatesForConversation, listClients } from "@/lib/db/clients";
 import { getAnalysis, listSegments } from "@/lib/db/segments";
+import { getExtractionAddresses } from "@/lib/db/addresses";
 import { formatDateTime } from "@/lib/utils";
 import ExtractionPanel from "./ExtractionPanel";
+import AddressConversionCard from "./AddressConversionCard";
 import ArchiveDetail from "./ArchiveDetail";
 
 export const dynamic = "force-dynamic";
@@ -69,9 +71,10 @@ export default async function ChatlogDetailPage({
   ]);
   const history = extraction ? await getExtractionHistory(extraction.id) : [];
   const logs = await getExtractionLogs(id);
-  const [candidates, allClients] = await Promise.all([
+  const [candidates, allClients, addresses] = await Promise.all([
     listCandidatesForConversation(id),
     listClients(),
+    extraction ? getExtractionAddresses(id) : Promise.resolve(null),
   ]);
   const clientOptions = allClients.map((c) => ({ id: c.id, name: c.name }));
 
@@ -124,6 +127,11 @@ export default async function ChatlogDetailPage({
             candidates={candidates}
             clientOptions={clientOptions}
           />
+
+          {/* 주소 변환(신/구 + 가격표 기준 지역) */}
+          {extraction && (
+            <AddressConversionCard conversationId={id} addresses={addresses} />
+          )}
 
           {/* 변경 이력 */}
           <div className="rounded-xl border border-slate-200 bg-white">
