@@ -27,7 +27,15 @@ import {
   type PricingInput,
   type RuleInput,
 } from "@/lib/db/client-policy";
-import { VEHICLE_TYPES } from "@/lib/clients-meta";
+import {
+  createDispatch,
+  deactivateDispatch,
+  createSettlement,
+  deactivateSettlement,
+  createDocument,
+  deactivateDocument,
+} from "@/lib/db/client-records";
+import { VEHICLE_TYPES, DOC_TYPES } from "@/lib/clients-meta";
 import { getActorName } from "@/lib/auth";
 
 export interface ActionResult {
@@ -439,6 +447,99 @@ export async function deactivateRuleAction(id: string, clientId: string): Promis
     await deactivateRule(id, await actor());
     revalidatePath(`/clients/${clientId}`);
     return { ok: true, message: "규칙을 삭제했습니다." };
+  } catch (e) {
+    return { ok: false, message: `처리 실패: ${(e as Error).message}` };
+  }
+}
+
+// ── 배차이력 ─────────────────────────────────────────────────────────
+export async function createDispatchAction(clientId: string, fd: FormData): Promise<ActionResult> {
+  try {
+    await createDispatch(clientId, {
+      received_on: str(fd, "received_on"),
+      origin: str(fd, "origin"),
+      destination: str(fd, "destination"),
+      vehicle_type: str(fd, "vehicle_type"),
+      driver_name: str(fd, "driver_name"),
+      charge_amount: num(fd, "charge_amount"),
+      driver_fee: num(fd, "driver_fee"),
+      dispatch_surcharge: num(fd, "dispatch_surcharge"),
+      via_fee: num(fd, "via_fee"),
+      status: str(fd, "status"),
+      memo: str(fd, "memo"),
+    }, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "배차 이력을 추가했습니다." };
+  } catch (e) {
+    return { ok: false, message: `추가 실패: ${(e as Error).message}` };
+  }
+}
+export async function deactivateDispatchAction(id: string, clientId: string): Promise<ActionResult> {
+  try {
+    await deactivateDispatch(id, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "삭제했습니다." };
+  } catch (e) {
+    return { ok: false, message: `처리 실패: ${(e as Error).message}` };
+  }
+}
+
+// ── 정산이력 ─────────────────────────────────────────────────────────
+export async function createSettlementAction(clientId: string, fd: FormData): Promise<ActionResult> {
+  try {
+    await createSettlement(clientId, {
+      close_month: str(fd, "close_month"),
+      total_charge: num(fd, "total_charge"),
+      total_driver_fee: num(fd, "total_driver_fee"),
+      commission: num(fd, "commission"),
+      discount_amount: num(fd, "discount_amount"),
+      tax_invoice_issued: bool(fd, "tax_invoice_issued"),
+      paid: bool(fd, "paid"),
+      unpaid_amount: num(fd, "unpaid_amount"),
+      memo: str(fd, "memo"),
+    }, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "정산 이력을 추가했습니다." };
+  } catch (e) {
+    return { ok: false, message: `추가 실패: ${(e as Error).message}` };
+  }
+}
+export async function deactivateSettlementAction(id: string, clientId: string): Promise<ActionResult> {
+  try {
+    await deactivateSettlement(id, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "삭제했습니다." };
+  } catch (e) {
+    return { ok: false, message: `처리 실패: ${(e as Error).message}` };
+  }
+}
+
+// ── 문서관리 ─────────────────────────────────────────────────────────
+export async function uploadDocumentAction(clientId: string, fd: FormData): Promise<ActionResult> {
+  try {
+    const file = fd.get("file");
+    if (!(file instanceof File) || file.size === 0) return { ok: false, message: "파일을 선택하세요." };
+    const docType = str(fd, "doc_type") ?? "기타";
+    if (!(DOC_TYPES as readonly string[]).includes(docType)) return { ok: false, message: "문서 유형이 올바르지 않습니다." };
+    const buffer = Buffer.from(await file.arrayBuffer());
+    await createDocument(clientId, {
+      docType,
+      filename: file.name,
+      buffer,
+      mime: file.type || "application/octet-stream",
+      memo: str(fd, "memo"),
+    }, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: `'${file.name}' 업로드 완료` };
+  } catch (e) {
+    return { ok: false, message: `업로드 실패: ${(e as Error).message}` };
+  }
+}
+export async function deactivateDocumentAction(id: string, clientId: string): Promise<ActionResult> {
+  try {
+    await deactivateDocument(id, await actor());
+    revalidatePath(`/clients/${clientId}`);
+    return { ok: true, message: "삭제했습니다." };
   } catch (e) {
     return { ok: false, message: `처리 실패: ${(e as Error).message}` };
   }

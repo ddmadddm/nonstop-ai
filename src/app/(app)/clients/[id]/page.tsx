@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/clients";
 import { getClientKnowledge } from "@/lib/db/knowledge";
 import { getPricingPolicy, listRules } from "@/lib/db/client-policy";
+import { listDispatches, listSettlements, listDocuments } from "@/lib/db/client-records";
 import { listClientDrafts } from "@/lib/db/assistant";
 import ClientDetail from "./ClientDetail";
 
@@ -24,18 +25,23 @@ export default async function ClientDetailPage({
   const client = await getClient(id);
   if (!client) notFound();
 
-  const [contacts, addresses, consultations, candidates, all, knowledge, pricing, rules, drafts] =
-    await Promise.all([
-      listContacts(id),
-      listAddresses(id),
-      getClientConsultations(id),
-      listCandidatesForClient(id),
-      listClients(),
-      getClientKnowledge(id),
-      getPricingPolicy(id),
-      listRules(id),
-      listClientDrafts(id),
-    ]);
+  const [
+    contacts, addresses, consultations, candidates, all, knowledge, pricing, rules, drafts,
+    dispatches, settlements, documents,
+  ] = await Promise.all([
+    listContacts(id),
+    listAddresses(id),
+    getClientConsultations(id),
+    listCandidatesForClient(id),
+    listClients(),
+    getClientKnowledge(id),
+    getPricingPolicy(id),
+    listRules(id),
+    listClientDrafts(id),
+    listDispatches(id),
+    listSettlements(id),
+    listDocuments(id),
+  ]);
   const clientOptions = all.map((c) => ({ id: c.id, name: c.name }));
 
   return (
@@ -57,6 +63,9 @@ export default async function ClientDetailPage({
         pricing={pricing}
         rules={rules}
         drafts={drafts}
+        dispatches={dispatches}
+        settlements={settlements}
+        documents={documents}
       />
     </div>
   );

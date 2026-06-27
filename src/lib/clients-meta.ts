@@ -70,6 +70,17 @@ export const RULE_TYPES = [
   "기타",
 ] as const;
 
+// 문서 유형
+export const DOC_TYPES = [
+  "사업자등록증",
+  "계약서",
+  "통장사본",
+  "견적서",
+  "요금표",
+  "마감내역",
+  "기타",
+] as const;
+
 // 상담 유입 채널(6종)
 export const INBOUND_CHANNELS = [
   "카카오채널",

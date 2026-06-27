@@ -12,6 +12,7 @@ import type {
 } from "@/lib/db/clients";
 import type { ClientKnowledge } from "@/lib/db/knowledge";
 import type { PricingPolicy, ClientRule } from "@/lib/db/client-policy";
+import type { DispatchHistory, Settlement, ClientDocument } from "@/lib/db/client-records";
 import type { ClientDraft } from "@/lib/db/assistant";
 import {
   CLIENT_TYPES,
@@ -21,6 +22,7 @@ import {
   ADDRESS_VERIFY,
   VEHICLE_TYPES,
   RULE_TYPES,
+  DOC_TYPES,
 } from "@/lib/clients-meta";
 import MatchCandidates from "../MatchCandidates";
 import {
@@ -38,6 +40,12 @@ import {
   createRuleAction,
   updateRuleAction,
   deactivateRuleAction,
+  createDispatchAction,
+  deactivateDispatchAction,
+  createSettlementAction,
+  deactivateSettlementAction,
+  uploadDocumentAction,
+  deactivateDocumentAction,
   type ActionResult,
 } from "../actions";
 
@@ -47,11 +55,20 @@ const USAGE_LABEL: Record<string, string> = {
   both: "출발/도착",
 };
 
-type TabKey = "billing" | "contacts" | "addresses" | "pricing" | "rules" | "history" | "match" | "knowledge";
+type TabKey =
+  | "billing" | "contacts" | "addresses" | "pricing" | "rules"
+  | "history" | "dispatch" | "settlement" | "documents" | "match" | "knowledge";
 
 const input = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm";
 const labelCls = "block text-sm";
 const subLabel = "text-slate-500";
+
+function Th({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
+  return <th className={`px-2.5 py-2 font-medium ${className}`}>{children}</th>;
+}
+function Td({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
+  return <td className={`px-2.5 py-2 ${className}`}>{children ?? <span className="text-slate-300">—</span>}</td>;
+}
 
 function Msg({ result }: { result: ActionResult | null }) {
   if (!result) return null;
@@ -73,6 +90,9 @@ export default function ClientDetail({
   pricing,
   rules,
   drafts,
+  dispatches,
+  settlements,
+  documents,
 }: {
   client: Client;
   contacts: ClientContact[];
@@ -84,6 +104,9 @@ export default function ClientDetail({
   pricing: PricingPolicy | null;
   rules: ClientRule[];
   drafts: ClientDraft[];
+  dispatches: DispatchHistory[];
+  settlements: Settlement[];
+  documents: ClientDocument[];
 }) {
   const pendingCount = candidates.filter((c) => c.status === "pending").length;
   const TABS: { key: TabKey; label: string; badge?: number }[] = [
@@ -93,6 +116,9 @@ export default function ClientDetail({
     { key: "pricing", label: "운임·요금" },
     { key: "rules", label: `AI 업무규칙 ${rules.length}` },
     { key: "history", label: `상담이력 ${consultations.length + drafts.length}` },
+    { key: "dispatch", label: `배차이력 ${dispatches.length}` },
+    { key: "settlement", label: `정산이력 ${settlements.length}` },
+    { key: "documents", label: `문서 ${documents.length}` },
     { key: "match", label: "AI 매칭", badge: pendingCount },
     { key: "knowledge", label: "지식베이스" },
   ];
@@ -132,6 +158,9 @@ export default function ClientDetail({
       {tab === "pricing" && <PricingTab clientId={client.id} pricing={pricing} />}
       {tab === "rules" && <RulesTab clientId={client.id} rules={rules} />}
       {tab === "history" && <HistoryTab consultations={consultations} drafts={drafts} />}
+      {tab === "dispatch" && <DispatchTab clientId={client.id} dispatches={dispatches} />}
+      {tab === "settlement" && <SettlementTab clientId={client.id} settlements={settlements} />}
+      {tab === "documents" && <DocumentsTab clientId={client.id} documents={documents} />}
       {tab === "match" && (
         <div className="rounded-xl border border-slate-200 bg-white">
           <div className="px-4 py-2.5 border-b border-slate-100 text-sm font-semibold">
@@ -1311,5 +1340,196 @@ function RuleForm({ clientId, rule, onDone }: { clientId: string; rule?: ClientR
         <Msg result={result} />
       </div>
     </form>
+  );
+}
+
+// ── 배차이력 ─────────────────────────────────────────────────────────
+const won = (n: number | null) => (n != null ? n.toLocaleString() : "—");
+
+function DispatchTab({ clientId, dispatches }: { clientId: string; dispatches: DispatchHistory[] }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<ActionResult | null>(null);
+
+  function add(fd: FormData) {
+    startTransition(async () => {
+      const r = await createDispatchAction(clientId, fd);
+      setResult(r);
+      if (r.ok) { router.refresh(); (document.getElementById(`dform-${clientId}`) as HTMLFormElement)?.reset(); }
+    });
+  }
+  function del(id: string) {
+    if (!confirm("배차 이력을 삭제할까요?")) return;
+    startTransition(async () => { await deactivateDispatchAction(id, clientId); router.refresh(); });
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-400">향후 인성 프로그램·엑셀 업로드와 연결됩니다(현재 수기 입력). 마진=청구−기사비 자동 계산.</p>
+      <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+        <table className="w-full text-sm whitespace-nowrap">
+          <thead><tr className="border-b border-slate-100 text-left text-[11px] text-slate-400">
+            <Th>접수일</Th><Th>출발</Th><Th>도착</Th><Th>차종</Th><Th>기사</Th>
+            <Th className="text-right">청구</Th><Th className="text-right">기사비</Th><Th className="text-right">마진</Th>
+            <Th className="text-right">수배할증</Th><Th className="text-right">경유비</Th><Th>상태</Th><Th></Th>
+          </tr></thead>
+          <tbody className="divide-y divide-slate-50">
+            {dispatches.length === 0 && <tr><td colSpan={12} className="p-6 text-center text-slate-400">배차 이력이 없습니다.</td></tr>}
+            {dispatches.map((d) => (
+              <tr key={d.id} className="hover:bg-slate-50">
+                <Td>{d.received_on}</Td><Td>{d.origin}</Td><Td>{d.destination}</Td><Td>{d.vehicle_type}</Td><Td>{d.driver_name}</Td>
+                <Td className="text-right tabular-nums">{won(d.charge_amount)}</Td>
+                <Td className="text-right tabular-nums">{won(d.driver_fee)}</Td>
+                <Td className="text-right tabular-nums font-medium">{won(d.margin)}</Td>
+                <Td className="text-right tabular-nums">{won(d.dispatch_surcharge)}</Td>
+                <Td className="text-right tabular-nums">{won(d.via_fee)}</Td>
+                <Td>{d.status}</Td>
+                <Td><button onClick={() => del(d.id)} disabled={pending} className="text-xs text-rose-500 hover:text-rose-700">삭제</button></Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <form id={`dform-${clientId}`} action={add} className="rounded-xl border border-slate-200 bg-white p-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <label className="text-xs"><span className={subLabel}>접수일</span><input type="date" name="received_on" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>차종</span><input name="vehicle_type" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>출발지</span><input name="origin" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>도착지</span><input name="destination" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>기사</span><input name="driver_name" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>청구금액</span><input type="number" name="charge_amount" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>기사비</span><input type="number" name="driver_fee" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>수배할증</span><input type="number" name="dispatch_surcharge" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>경유비</span><input type="number" name="via_fee" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>상태</span><input name="status" className={`mt-1 ${input}`} /></label>
+        <div className="col-span-2 sm:col-span-4 flex items-center gap-2">
+          <button type="submit" disabled={pending} className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2 disabled:opacity-50">배차 이력 추가</button>
+          <Msg result={result} />
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ── 정산이력 ─────────────────────────────────────────────────────────
+function SettlementTab({ clientId, settlements }: { clientId: string; settlements: Settlement[] }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<ActionResult | null>(null);
+
+  function add(fd: FormData) {
+    startTransition(async () => {
+      const r = await createSettlementAction(clientId, fd);
+      setResult(r);
+      if (r.ok) { router.refresh(); (document.getElementById(`sform-${clientId}`) as HTMLFormElement)?.reset(); }
+    });
+  }
+  function del(id: string) {
+    if (!confirm("정산 이력을 삭제할까요?")) return;
+    startTransition(async () => { await deactivateSettlementAction(id, clientId); router.refresh(); });
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-400">향후 마감/정산 자동화와 연결됩니다(현재 수기 입력).</p>
+      <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+        <table className="w-full text-sm whitespace-nowrap">
+          <thead><tr className="border-b border-slate-100 text-left text-[11px] text-slate-400">
+            <Th>마감월</Th><Th className="text-right">총청구</Th><Th className="text-right">총기사비</Th><Th className="text-right">수수료</Th>
+            <Th className="text-right">할인</Th><Th>세계산서</Th><Th>입금</Th><Th className="text-right">미수금</Th><Th></Th>
+          </tr></thead>
+          <tbody className="divide-y divide-slate-50">
+            {settlements.length === 0 && <tr><td colSpan={9} className="p-6 text-center text-slate-400">정산 이력이 없습니다.</td></tr>}
+            {settlements.map((s) => (
+              <tr key={s.id} className="hover:bg-slate-50">
+                <Td>{s.close_month}</Td>
+                <Td className="text-right tabular-nums">{won(s.total_charge)}</Td>
+                <Td className="text-right tabular-nums">{won(s.total_driver_fee)}</Td>
+                <Td className="text-right tabular-nums">{won(s.commission)}</Td>
+                <Td className="text-right tabular-nums">{won(s.discount_amount)}</Td>
+                <Td>{s.tax_invoice_issued ? "발행" : "—"}</Td>
+                <Td>{s.paid ? <span className="text-emerald-600">입금</span> : <span className="text-rose-600">미입금</span>}</Td>
+                <Td className="text-right tabular-nums">{won(s.unpaid_amount)}</Td>
+                <Td><button onClick={() => del(s.id)} disabled={pending} className="text-xs text-rose-500 hover:text-rose-700">삭제</button></Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <form id={`sform-${clientId}`} action={add} className="rounded-xl border border-slate-200 bg-white p-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <label className="text-xs"><span className={subLabel}>마감월(YYYY-MM)</span><input name="close_month" placeholder="2026-06" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>총 청구금액</span><input type="number" name="total_charge" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>총 기사비</span><input type="number" name="total_driver_fee" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>수수료</span><input type="number" name="commission" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>할인금액</span><input type="number" name="discount_amount" className={`mt-1 ${input}`} /></label>
+        <label className="text-xs"><span className={subLabel}>미수금</span><input type="number" name="unpaid_amount" className={`mt-1 ${input}`} /></label>
+        <label className="flex items-center gap-2 text-sm mt-4"><input type="checkbox" name="tax_invoice_issued" /><span>세금계산서</span></label>
+        <label className="flex items-center gap-2 text-sm mt-4"><input type="checkbox" name="paid" /><span>입금</span></label>
+        <div className="col-span-2 sm:col-span-4 flex items-center gap-2">
+          <button type="submit" disabled={pending} className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2 disabled:opacity-50">정산 이력 추가</button>
+          <Msg result={result} />
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ── 문서관리 ─────────────────────────────────────────────────────────
+function DocumentsTab({ clientId, documents }: { clientId: string; documents: ClientDocument[] }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<ActionResult | null>(null);
+
+  function upload(fd: FormData) {
+    startTransition(async () => {
+      const r = await uploadDocumentAction(clientId, fd);
+      setResult(r);
+      if (r.ok) { router.refresh(); (document.getElementById(`docform-${clientId}`) as HTMLFormElement)?.reset(); }
+    });
+  }
+  function del(id: string) {
+    if (!confirm("문서를 삭제할까요?")) return;
+    startTransition(async () => { await deactivateDocumentAction(id, clientId); router.refresh(); });
+  }
+
+  return (
+    <div className="space-y-3">
+      <form id={`docform-${clientId}`} action={upload} className="rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap items-end gap-2">
+        <label className="text-xs">
+          <span className={subLabel}>문서 유형</span>
+          <select name="doc_type" defaultValue="기타" className={`mt-1 ${input} bg-white`}>
+            {DOC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label className="text-xs flex-1 min-w-40">
+          <span className={subLabel}>파일</span>
+          <input type="file" name="file" required className={`mt-1 ${input}`} />
+        </label>
+        <label className="text-xs flex-1 min-w-40">
+          <span className={subLabel}>메모</span>
+          <input name="memo" className={`mt-1 ${input}`} />
+        </label>
+        <button type="submit" disabled={pending} className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2 disabled:opacity-50">
+          {pending ? "업로드 중…" : "업로드"}
+        </button>
+        <Msg result={result} />
+      </form>
+
+      <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+        {documents.length === 0 && <div className="p-4 text-sm text-slate-400">등록된 문서가 없습니다.</div>}
+        {documents.map((d) => (
+          <div key={d.id} className="flex items-center gap-2 p-3.5 text-sm">
+            <span className="text-[11px] rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">{d.doc_type}</span>
+            <a href={`/api/document?id=${d.id}`} className="font-medium text-slate-800 hover:underline truncate" target="_blank" rel="noreferrer">
+              {d.filename}
+            </a>
+            <span className="text-xs text-slate-400">
+              {d.byte_size != null ? `${Math.round(d.byte_size / 1024)}KB · ` : ""}{d.created_at.slice(0, 10)}
+            </span>
+            {d.memo && <span className="text-xs text-slate-400 truncate">· {d.memo}</span>}
+            <button onClick={() => del(d.id)} disabled={pending} className="ml-auto text-xs text-rose-500 hover:text-rose-700">삭제</button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
