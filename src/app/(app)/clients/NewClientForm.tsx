@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { createClientAction, type ActionResult } from "./actions";
 import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "@/lib/clients-meta";
 
-export default function NewClientForm() {
+export default function NewClientForm({
+  relationshipOptions = [],
+}: {
+  relationshipOptions?: { value: string; label: string }[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -57,6 +61,19 @@ export default function NewClientForm() {
           >
             {CLIENT_TYPES.map((t) => (
               <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm">
+          <span className="text-slate-500">관계/유입 구분</span>
+          <select
+            name="relationship_type"
+            defaultValue=""
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+          >
+            <option value="">미분류</option>
+            {relationshipOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
         </label>

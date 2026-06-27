@@ -36,7 +36,7 @@ const SEARCH_FIELDS: { value: string; label: string }[] = [
 
 const PAGE_SIZE = 10;
 
-type SP = { filter?: string; field?: string; q?: string; page?: string; rel?: string };
+type SP = { filter?: string; field?: string; q?: string; page?: string };
 
 export default async function ClientsPage({
   searchParams,
@@ -47,13 +47,11 @@ export default async function ClientsPage({
   const filter = (FILTERS.find((f) => f.key === sp.filter)?.key ?? "all") as ClientFilter;
   const field = sp.field ?? "";
   const q = sp.q ?? "";
-  const rel = sp.rel ?? "";
   const page = Math.max(1, Number(sp.page) || 1);
 
   const [result, pending, relOptions] = await Promise.all([
     listManagedClients({
       filter,
-      rel,
       q,
       field: (field || null) as never,
       page,
@@ -65,11 +63,10 @@ export default async function ClientsPage({
 
   const qs = (over: Partial<SP>) => {
     const p = new URLSearchParams();
-    const merged = { filter, field, q, rel, page: String(page), ...over };
+    const merged = { filter, field, q, page: String(page), ...over };
     if (merged.filter && merged.filter !== "all") p.set("filter", merged.filter);
     if (merged.field) p.set("field", merged.field);
     if (merged.q) p.set("q", merged.q);
-    if (merged.rel) p.set("rel", merged.rel);
     if (merged.page && merged.page !== "1") p.set("page", merged.page);
     const s = p.toString();
     return s ? `/clients?${s}` : "/clients";
@@ -81,7 +78,7 @@ export default async function ClientsPage({
         <h1 className="text-lg font-semibold">거래처 관리</h1>
         <span className="text-sm text-slate-400">Total {result.total.toLocaleString()}</span>
         <div className="ml-auto">
-          <NewClientForm />
+          <NewClientForm relationshipOptions={relOptions.map((o) => ({ value: o.value, label: o.label }))} />
         </div>
       </div>
 
@@ -117,39 +114,6 @@ export default async function ClientsPage({
               </span>
             )}
           </Link>
-
-          {/* 관계/유입 구분 필터 */}
-          <div className="my-2 border-t border-slate-100" />
-          <div className="px-2 py-1 text-[11px] font-semibold text-slate-400">관계/유입</div>
-          <nav className="space-y-0.5">
-            <Link
-              href={qs({ rel: "", page: "1" })}
-              className={`block rounded-lg px-2.5 py-1.5 text-sm ${
-                !rel ? "bg-slate-100 text-slate-800 font-medium" : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              전체
-            </Link>
-            {relOptions.map((o) => (
-              <Link
-                key={o.value}
-                href={qs({ rel: o.value, page: "1" })}
-                className={`block rounded-lg px-2.5 py-1.5 text-sm ${
-                  rel === o.value ? "bg-slate-900 text-white font-medium" : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {o.label}
-              </Link>
-            ))}
-            <Link
-              href={qs({ rel: "미분류", page: "1" })}
-              className={`block rounded-lg px-2.5 py-1.5 text-sm ${
-                rel === "미분류" ? "bg-slate-900 text-white font-medium" : "text-slate-400 hover:bg-slate-50"
-              }`}
-            >
-              미분류
-            </Link>
-          </nav>
         </aside>
 
         {/* 우측: 검색 + 테이블 — 남은 폭 전부 사용 */}
@@ -157,7 +121,6 @@ export default async function ClientsPage({
           {/* 검색 */}
           <form method="get" className="flex flex-wrap items-center gap-2">
             {filter !== "all" && <input type="hidden" name="filter" value={filter} />}
-            {rel && <input type="hidden" name="rel" value={rel} />}
             <select
               name="field"
               defaultValue={field}

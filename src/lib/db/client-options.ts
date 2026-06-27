@@ -43,6 +43,45 @@ export async function listAllOptions(categoryKey: string): Promise<ClientOption[
     order by is_active desc, sort_order, label`;
 }
 
+// 카테고리별 항목 사용건수 — 설정 목록의 '사용건수' 컬럼.
+async function optionUsage(categoryKey: string): Promise<Map<string, number>> {
+  let rows: { value: string | null; n: number }[] = [];
+  if (categoryKey === "relationship")
+    rows = await sql`select relationship_type as value, count(*)::int n from clients where is_active and relationship_type is not null group by relationship_type`;
+  else if (categoryKey === "client_type")
+    rows = await sql`select client_type as value, count(*)::int n from clients where is_active group by client_type`;
+  else if (categoryKey === "payment")
+    rows = await sql`select default_payment_method as value, count(*)::int n from clients where is_active and default_payment_method is not null group by default_payment_method`;
+  else if (categoryKey === "contact_role")
+    rows = await sql`select role as value, count(*)::int n from client_contacts where is_active and role is not null group by role`;
+  else if (categoryKey === "address_category")
+    rows = await sql`select address_category as value, count(*)::int n from client_addresses where is_active and address_category is not null group by address_category`;
+  else if (categoryKey === "address_verify")
+    rows = await sql`select verify_status as value, count(*)::int n from client_addresses where is_active group by verify_status`;
+  const m = new Map<string, number>();
+  for (const r of rows) if (r.value) m.set(r.value, Number(r.n));
+  return m;
+}
+
+export interface ManagedOption extends ClientOption {
+  created_at: string;
+  usage_count: number;
+}
+export async function listManagedOptions(categoryKey: string): Promise<ManagedOption[]> {
+  const [rows, usage] = await Promise.all([
+    sql<(ClientOption & { created_at: Date })[]>`
+      select id, category_key, label, value, color, sort_order, is_active, created_at
+      from client_options where category_key=${categoryKey}
+      order by is_active desc, sort_order, label`,
+    optionUsage(categoryKey),
+  ]);
+  return rows.map((r) => ({
+    ...r,
+    created_at: r.created_at.toISOString(),
+    usage_count: usage.get(r.value) ?? 0,
+  }));
+}
+
 export interface OptionInput {
   label: string;
   value?: string | null; // 미지정 시 label 사용
