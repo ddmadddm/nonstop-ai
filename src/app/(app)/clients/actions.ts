@@ -40,6 +40,12 @@ function str(fd: FormData, k: string): string | null {
 function bool(fd: FormData, k: string): boolean {
   return fd.get(k) === "on" || fd.get(k) === "true";
 }
+function num(fd: FormData, k: string): number | null {
+  const s = str(fd, k);
+  if (s == null) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
 function list(fd: FormData, k: string): string[] {
   const v = str(fd, k);
   return v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
@@ -55,8 +61,14 @@ export async function createClientAction(fd: FormData): Promise<ActionResult> {
         name,
         client_type: str(fd, "client_type"),
         business_no: str(fd, "business_no"),
+        ceo_name: str(fd, "ceo_name"),
+        email: str(fd, "email"),
+        address: str(fd, "address"),
         phone: str(fd, "phone"),
+        started_on: str(fd, "started_on"),
+        tax_invoice: bool(fd, "tax_invoice"),
         default_payment_method: str(fd, "default_payment_method"),
+        default_discount_rate: num(fd, "default_discount_rate"),
         default_vehicle_type: str(fd, "default_vehicle_type"),
         frequent_vehicle_types: list(fd, "frequent_vehicle_types"),
         fare_terms: str(fd, "fare_terms"),
@@ -84,8 +96,14 @@ export async function updateClientAction(
         name,
         client_type: str(fd, "client_type"),
         business_no: str(fd, "business_no"),
+        ceo_name: str(fd, "ceo_name"),
+        email: str(fd, "email"),
+        address: str(fd, "address"),
         phone: str(fd, "phone"),
+        started_on: str(fd, "started_on"),
+        tax_invoice: bool(fd, "tax_invoice"),
         default_payment_method: str(fd, "default_payment_method"),
+        default_discount_rate: num(fd, "default_discount_rate"),
         default_vehicle_type: str(fd, "default_vehicle_type"),
         frequent_vehicle_types: list(fd, "frequent_vehicle_types"),
         fare_terms: str(fd, "fare_terms"),
@@ -136,11 +154,14 @@ export async function createContactAction(
       clientId,
       {
         name,
+        department: str(fd, "department"),
         title: str(fd, "title"),
+        role: str(fd, "role"),
         phone: str(fd, "phone"),
         email: str(fd, "email"),
         kakao_display_name: str(fd, "kakao_display_name"),
         is_primary: bool(fd, "is_primary"),
+        is_resigned: bool(fd, "is_resigned"),
         memo: str(fd, "memo"),
       },
       await actor(),
@@ -164,11 +185,14 @@ export async function updateContactAction(
       id,
       {
         name,
+        department: str(fd, "department"),
         title: str(fd, "title"),
+        role: str(fd, "role"),
         phone: str(fd, "phone"),
         email: str(fd, "email"),
         kakao_display_name: str(fd, "kakao_display_name"),
         is_primary: bool(fd, "is_primary"),
+        is_resigned: bool(fd, "is_resigned"),
         memo: str(fd, "memo"),
       },
       await actor(),
@@ -205,9 +229,12 @@ export async function createAddressAction(
       clientId,
       {
         label,
+        address_category: str(fd, "address_category"),
         address: str(fd, "address"),
         address_detail: str(fd, "address_detail"),
         usage_type: (str(fd, "usage_type") as AddressUsage) ?? "both",
+        is_default_destination: bool(fd, "is_default_destination"),
+        verify_status: str(fd, "verify_status"),
         contact_name: str(fd, "contact_name"),
         contact_phone: str(fd, "contact_phone"),
         road_address: str(fd, "road_address"),
@@ -236,9 +263,12 @@ export async function updateAddressAction(
       id,
       {
         label,
+        address_category: str(fd, "address_category"),
         address: str(fd, "address"),
         address_detail: str(fd, "address_detail"),
         usage_type: (str(fd, "usage_type") as AddressUsage) ?? "both",
+        is_default_destination: bool(fd, "is_default_destination"),
+        verify_status: str(fd, "verify_status"),
         contact_name: str(fd, "contact_name"),
         contact_phone: str(fd, "contact_phone"),
         road_address: str(fd, "road_address"),

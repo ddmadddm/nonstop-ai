@@ -8,8 +8,14 @@ export interface Client {
   name: string;
   client_type: string;
   business_no: string | null;
+  ceo_name: string | null; // 대표자명
+  email: string | null;
+  address: string | null; // 대표 주소
   phone: string | null;
+  started_on: string | null; // 거래시작일(YYYY-MM-DD)
+  tax_invoice: boolean; // 세금계산서 발행
   default_payment_method: string | null;
+  default_discount_rate: number | null; // 기본 할인율(%)
   default_vehicle_type: string | null;
   frequent_vehicle_types: string[];
   fare_terms: string | null;
@@ -35,11 +41,14 @@ export interface ClientContact {
   id: string;
   client_id: string;
   name: string;
-  title: string | null;
+  department: string | null; // 부서
+  title: string | null; // 직급
+  role: string | null; // 배차담당/결제담당/현장담당/야간담당/대표담당/기타
   phone: string | null;
   email: string | null;
   kakao_display_name: string | null;
   is_primary: boolean;
+  is_resigned: boolean; // 퇴사 여부
   memo: string | null;
 }
 
@@ -49,9 +58,12 @@ export interface ClientAddress {
   id: string;
   client_id: string;
   label: string;
+  address_category: string | null; // 본사/공장/창고/1공장/2공장/현장/기타
   address: string | null;
   address_detail: string | null;
   usage_type: AddressUsage;
+  is_default_destination: boolean; // 기본 도착지
+  verify_status: string; // 확인완료/확인필요
   contact_name: string | null;
   contact_phone: string | null;
   road_address: string | null; // 신주소(도로명)
@@ -279,23 +291,35 @@ export async function listManagedClients(query: ManagedClientQuery): Promise<Man
 }
 
 export async function getClient(id: string): Promise<Client | null> {
-  const rows = await sql<Client[]>`
-    select c.id, c.name, c.client_type, c.business_no, c.phone,
-           c.default_payment_method, c.default_vehicle_type,
-           c.frequent_vehicle_types, c.fare_terms, c.memo,
+  const rows = await sql<(Omit<Client, "started_on"> & { started_on: Date | null })[]>`
+    select c.id, c.name, c.client_type, c.business_no, c.ceo_name, c.email, c.address, c.phone,
+           c.started_on, c.tax_invoice, c.default_payment_method, c.default_discount_rate,
+           c.default_vehicle_type, c.frequent_vehicle_types, c.fare_terms, c.memo,
            c.default_origin_address_id, a.label as default_origin_label
     from clients c
     left join client_addresses a on a.id = c.default_origin_address_id
     where c.id = ${id} and c.is_active`;
-  return rows[0] ?? null;
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    ...r,
+    started_on: r.started_on ? r.started_on.toISOString().slice(0, 10) : null,
+    default_discount_rate: r.default_discount_rate != null ? Number(r.default_discount_rate) : null,
+  };
 }
 
 export interface ClientInput {
   name: string;
   client_type?: string | null;
   business_no?: string | null;
+  ceo_name?: string | null;
+  email?: string | null;
+  address?: string | null;
   phone?: string | null;
+  started_on?: string | null;
+  tax_invoice?: boolean;
   default_payment_method?: string | null;
+  default_discount_rate?: number | null;
   default_vehicle_type?: string | null;
   frequent_vehicle_types?: string[];
   fare_terms?: string | null;
@@ -306,12 +330,16 @@ export async function createClient(input: ClientInput, byName?: string): Promise
   const by = await resolveAgentId(byName);
   const [row] = await sql<{ id: string }[]>`
     insert into clients
-      (name, client_type, business_no, phone, default_payment_method, default_vehicle_type,
+      (name, client_type, business_no, ceo_name, email, address, phone, started_on, tax_invoice,
+       default_payment_method, default_discount_rate, default_vehicle_type,
        frequent_vehicle_types, fare_terms, memo, created_by, updated_by)
     values
       (${input.name}, coalesce(${input.client_type ?? null}, '일반거래처'),
-       ${input.business_no ?? null}, ${input.phone ?? null},
-       ${input.default_payment_method ?? null}, ${input.default_vehicle_type ?? null},
+       ${input.business_no ?? null}, ${input.ceo_name ?? null}, ${input.email ?? null},
+       ${input.address ?? null}, ${input.phone ?? null}, ${input.started_on ?? null},
+       ${input.tax_invoice ?? false},
+       ${input.default_payment_method ?? null}, ${input.default_discount_rate ?? null},
+       ${input.default_vehicle_type ?? null},
        ${input.frequent_vehicle_types ?? []}, ${input.fare_terms ?? null},
        ${input.memo ?? null}, ${by}, ${by})
     returning id`;
@@ -329,8 +357,11 @@ export async function updateClient(
       name=${input.name},
       client_type=coalesce(${input.client_type ?? null}, client_type),
       business_no=${input.business_no ?? null},
-      phone=${input.phone ?? null},
+      ceo_name=${input.ceo_name ?? null}, email=${input.email ?? null},
+      address=${input.address ?? null}, phone=${input.phone ?? null},
+      started_on=${input.started_on ?? null}, tax_invoice=${input.tax_invoice ?? false},
       default_payment_method=${input.default_payment_method ?? null},
+      default_discount_rate=${input.default_discount_rate ?? null},
       default_vehicle_type=${input.default_vehicle_type ?? null},
       frequent_vehicle_types=${input.frequent_vehicle_types ?? []},
       fare_terms=${input.fare_terms ?? null}, memo=${input.memo ?? null},
@@ -357,19 +388,23 @@ export async function setDefaultOrigin(
 // ── 담당자 ───────────────────────────────────────────────────────────
 export async function listContacts(clientId: string): Promise<ClientContact[]> {
   return sql<ClientContact[]>`
-    select id, client_id, name, title, phone, email, kakao_display_name, is_primary, memo
+    select id, client_id, name, department, title, role, phone, email,
+           kakao_display_name, is_primary, is_resigned, memo
     from client_contacts
     where client_id=${clientId} and is_active
-    order by is_primary desc, name`;
+    order by is_resigned, is_primary desc, name`;
 }
 
 export interface ContactInput {
   name: string;
+  department?: string | null;
   title?: string | null;
+  role?: string | null;
   phone?: string | null;
   email?: string | null;
   kakao_display_name?: string | null;
   is_primary?: boolean;
+  is_resigned?: boolean;
   memo?: string | null;
 }
 
@@ -382,11 +417,13 @@ export async function createContact(
   if (input.is_primary) await clearPrimaryContact(clientId, by);
   const [row] = await sql<{ id: string }[]>`
     insert into client_contacts
-      (client_id, name, title, phone, email, kakao_display_name, is_primary, memo, created_by, updated_by)
+      (client_id, name, department, title, role, phone, email, kakao_display_name,
+       is_primary, is_resigned, memo, created_by, updated_by)
     values
-      (${clientId}, ${input.name}, ${input.title ?? null}, ${input.phone ?? null},
+      (${clientId}, ${input.name}, ${input.department ?? null}, ${input.title ?? null},
+       ${input.role ?? null}, ${input.phone ?? null},
        ${input.email ?? null}, ${input.kakao_display_name ?? null},
-       ${input.is_primary ?? false}, ${input.memo ?? null},
+       ${input.is_primary ?? false}, ${input.is_resigned ?? false}, ${input.memo ?? null},
        ${by}, ${by})
     returning id`;
   return row.id;
@@ -403,9 +440,10 @@ export async function updateContact(
   if (c && input.is_primary) await clearPrimaryContact(c.client_id, by, id);
   await sql`
     update client_contacts set
-      name=${input.name}, title=${input.title ?? null}, phone=${input.phone ?? null},
+      name=${input.name}, department=${input.department ?? null}, title=${input.title ?? null},
+      role=${input.role ?? null}, phone=${input.phone ?? null},
       email=${input.email ?? null}, kakao_display_name=${input.kakao_display_name ?? null},
-      is_primary=${input.is_primary ?? false},
+      is_primary=${input.is_primary ?? false}, is_resigned=${input.is_resigned ?? false},
       memo=${input.memo ?? null}, updated_by=${by}
     where id=${id} and is_active`;
 }
@@ -429,7 +467,8 @@ async function clearPrimaryContact(
 // ── 주소록 ───────────────────────────────────────────────────────────
 export async function listAddresses(clientId: string): Promise<ClientAddress[]> {
   return sql<ClientAddress[]>`
-    select id, client_id, label, address, address_detail, usage_type,
+    select id, client_id, label, address_category, address, address_detail, usage_type,
+           is_default_destination, verify_status,
            contact_name, contact_phone, road_address, jibun_address, pricing_area, memo
     from client_addresses
     where client_id=${clientId} and is_active
@@ -438,9 +477,12 @@ export async function listAddresses(clientId: string): Promise<ClientAddress[]> 
 
 export interface AddressInput {
   label: string;
+  address_category?: string | null;
   address?: string | null;
   address_detail?: string | null;
   usage_type?: AddressUsage;
+  is_default_destination?: boolean;
+  verify_status?: string | null;
   contact_name?: string | null;
   contact_phone?: string | null;
   road_address?: string | null;
@@ -457,12 +499,14 @@ export async function createAddress(
   const by = await resolveAgentId(byName);
   const [row] = await sql<{ id: string }[]>`
     insert into client_addresses
-      (client_id, label, address, address_detail, usage_type,
+      (client_id, label, address_category, address, address_detail, usage_type,
+       is_default_destination, verify_status,
        contact_name, contact_phone, road_address, jibun_address, pricing_area, memo,
        created_by, updated_by)
     values
-      (${clientId}, ${input.label}, ${input.address ?? null},
+      (${clientId}, ${input.label}, ${input.address_category ?? null}, ${input.address ?? null},
        ${input.address_detail ?? null}, ${input.usage_type ?? "both"},
+       ${input.is_default_destination ?? false}, coalesce(${input.verify_status ?? null}, '확인완료'),
        ${input.contact_name ?? null}, ${input.contact_phone ?? null},
        ${input.road_address ?? null}, ${input.jibun_address ?? null},
        ${input.pricing_area ?? null}, ${input.memo ?? null}, ${by}, ${by})
@@ -478,9 +522,12 @@ export async function updateAddress(
   const by = await resolveAgentId(byName);
   await sql`
     update client_addresses set
-      label=${input.label}, address=${input.address ?? null},
+      label=${input.label}, address_category=${input.address_category ?? null},
+      address=${input.address ?? null},
       address_detail=${input.address_detail ?? null},
       usage_type=${input.usage_type ?? "both"},
+      is_default_destination=${input.is_default_destination ?? false},
+      verify_status=coalesce(${input.verify_status ?? null}, '확인완료'),
       contact_name=${input.contact_name ?? null},
       contact_phone=${input.contact_phone ?? null},
       road_address=${input.road_address ?? null},

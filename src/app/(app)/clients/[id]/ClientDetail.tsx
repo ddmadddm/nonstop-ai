@@ -11,7 +11,13 @@ import type {
   MatchCandidate,
 } from "@/lib/db/clients";
 import type { ClientKnowledge } from "@/lib/db/knowledge";
-import { CLIENT_TYPES } from "@/lib/clients-meta";
+import {
+  CLIENT_TYPES,
+  PAYMENT_METHODS,
+  CONTACT_ROLES,
+  ADDRESS_CATEGORIES,
+  ADDRESS_VERIFY,
+} from "@/lib/clients-meta";
 import MatchCandidates from "../MatchCandidates";
 import {
   updateClientAction,
@@ -327,17 +333,43 @@ function BillingTab({
           <input name="business_no" defaultValue={client.business_no ?? ""} className={`mt-1 ${input}`} />
         </label>
         <label className={labelCls}>
+          <span className={subLabel}>대표자명</span>
+          <input name="ceo_name" defaultValue={client.ceo_name ?? ""} className={`mt-1 ${input}`} />
+        </label>
+        <label className={labelCls}>
           <span className={subLabel}>대표 연락처</span>
           <input name="phone" defaultValue={client.phone ?? ""} className={`mt-1 ${input}`} />
         </label>
         <label className={labelCls}>
-          <span className={subLabel}>기본 결제방식</span>
+          <span className={subLabel}>이메일</span>
+          <input name="email" defaultValue={client.email ?? ""} className={`mt-1 ${input}`} />
+        </label>
+        <label className={labelCls}>
+          <span className={subLabel}>거래시작일</span>
+          <input type="date" name="started_on" defaultValue={client.started_on ?? ""} className={`mt-1 ${input}`} />
+        </label>
+        <label className={labelCls}>
+          <span className={subLabel}>기본 할인율(%)</span>
           <input
-            name="default_payment_method"
-            defaultValue={client.default_payment_method ?? ""}
-            placeholder="월말정산 / 현금 / 카드 …"
+            type="number"
+            step="0.1"
+            name="default_discount_rate"
+            defaultValue={client.default_discount_rate ?? ""}
             className={`mt-1 ${input}`}
           />
+        </label>
+        <label className={labelCls}>
+          <span className={subLabel}>기본 결제방식</span>
+          <select
+            name="default_payment_method"
+            defaultValue={client.default_payment_method ?? ""}
+            className={`mt-1 ${input} bg-white`}
+          >
+            <option value="">선택</option>
+            {PAYMENT_METHODS.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
         </label>
         <label className={labelCls}>
           <span className={subLabel}>기본 차종</span>
@@ -356,6 +388,16 @@ function BillingTab({
             placeholder="다마스, 1톤"
             className={`mt-1 ${input}`}
           />
+        </label>
+      </div>
+      <label className={labelCls}>
+        <span className={subLabel}>주소(대표)</span>
+        <input name="address" defaultValue={client.address ?? ""} className={`mt-1 ${input}`} />
+      </label>
+      <div className="flex items-center gap-4">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="tax_invoice" defaultChecked={client.tax_invoice} />
+          <span>세금계산서 발행</span>
         </label>
       </div>
       <label className={labelCls}>
@@ -453,7 +495,19 @@ function ContactItem({
               주담당
             </span>
           )}
-          {contact.title && <span className="text-xs text-slate-400">{contact.title}</span>}
+          {(contact.department || contact.title) && (
+            <span className="text-xs text-slate-400">
+              {[contact.department, contact.title].filter(Boolean).join(" ")}
+            </span>
+          )}
+          {contact.role && (
+            <span className="text-[11px] rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5">
+              {contact.role}
+            </span>
+          )}
+          {contact.is_resigned && (
+            <span className="text-[11px] rounded-full bg-zinc-200 text-zinc-600 px-2 py-0.5">퇴사</span>
+          )}
           {contact.kakao_display_name && (
             <span className="text-[11px] rounded-full bg-amber-100 text-amber-700 px-2 py-0.5">
               카톡 {contact.kakao_display_name}
@@ -523,8 +577,21 @@ function ContactForm({
           <input name="name" required defaultValue={contact?.name ?? ""} className={`mt-1 ${input}`} />
         </label>
         <label className={labelCls}>
-          <span className={subLabel}>직책</span>
+          <span className={subLabel}>부서</span>
+          <input name="department" defaultValue={contact?.department ?? ""} className={`mt-1 ${input}`} />
+        </label>
+        <label className={labelCls}>
+          <span className={subLabel}>직급</span>
           <input name="title" defaultValue={contact?.title ?? ""} className={`mt-1 ${input}`} />
+        </label>
+        <label className={labelCls}>
+          <span className={subLabel}>역할</span>
+          <select name="role" defaultValue={contact?.role ?? ""} className={`mt-1 ${input} bg-white`}>
+            <option value="">선택</option>
+            {CONTACT_ROLES.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
         </label>
         <label className={labelCls}>
           <span className={subLabel}>연락처</span>
@@ -544,10 +611,16 @@ function ContactForm({
           />
         </label>
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="is_primary" defaultChecked={contact?.is_primary ?? false} />
-        <span>주담당자로 지정</span>
-      </label>
+      <div className="flex items-center gap-4">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_primary" defaultChecked={contact?.is_primary ?? false} />
+          <span>주담당자</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_resigned" defaultChecked={contact?.is_resigned ?? false} />
+          <span>퇴사</span>
+        </label>
+      </div>
       <label className={labelCls}>
         <span className={subLabel}>메모</span>
         <input name="memo" defaultValue={contact?.memo ?? ""} className={`mt-1 ${input}`} />
@@ -648,12 +721,27 @@ function AddressItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-medium">{address.label}</span>
+          {address.address_category && (
+            <span className="text-[11px] rounded-full bg-slate-100 text-slate-500 px-2 py-0.5">
+              {address.address_category}
+            </span>
+          )}
           <span className="text-[11px] rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">
             {USAGE_LABEL[address.usage_type]}
           </span>
           {isDefaultOrigin && (
             <span className="text-[11px] rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5">
               기본 출발지
+            </span>
+          )}
+          {address.is_default_destination && (
+            <span className="text-[11px] rounded-full bg-sky-100 text-sky-700 px-2 py-0.5">
+              기본 도착지
+            </span>
+          )}
+          {address.verify_status === "확인필요" && (
+            <span className="text-[11px] rounded-full bg-amber-100 text-amber-700 px-2 py-0.5">
+              확인필요
             </span>
           )}
         </div>
@@ -752,6 +840,19 @@ function AddressForm({
           />
         </label>
         <label className={labelCls}>
+          <span className={subLabel}>주소명 카테고리</span>
+          <select
+            name="address_category"
+            defaultValue={address?.address_category ?? ""}
+            className={`mt-1 ${input} bg-white`}
+          >
+            <option value="">선택</option>
+            {ADDRESS_CATEGORIES.map((a) => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+        </label>
+        <label className={labelCls}>
           <span className={subLabel}>용도</span>
           <select
             name="usage_type"
@@ -761,6 +862,18 @@ function AddressForm({
             <option value="both">출발/도착 둘 다</option>
             <option value="origin">출발지</option>
             <option value="destination">도착지</option>
+          </select>
+        </label>
+        <label className={labelCls}>
+          <span className={subLabel}>주소 확인상태</span>
+          <select
+            name="verify_status"
+            defaultValue={address?.verify_status ?? "확인완료"}
+            className={`mt-1 ${input} bg-white`}
+          >
+            {ADDRESS_VERIFY.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
           </select>
         </label>
         <label className={labelCls}>
@@ -792,6 +905,14 @@ function AddressForm({
           />
         </label>
       </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          name="is_default_destination"
+          defaultChecked={address?.is_default_destination ?? false}
+        />
+        <span>기본 도착지로 지정</span>
+      </label>
 
       {/* 운임(가격표) 변환 — 신주소/구주소/가격표 기준 지역 */}
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
