@@ -70,7 +70,7 @@ export default async function ClientsPage({
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-6xl">
+    <div className="p-4 sm:p-6 space-y-4 w-full max-w-none">
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-semibold">거래처 관리</h1>
         <span className="text-sm text-slate-400">Total {result.total.toLocaleString()}</span>
@@ -79,9 +79,9 @@ export default async function ClientsPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-[12rem_1fr] gap-4">
-        {/* 좌측 필터 패널 */}
-        <aside className="rounded-xl border border-slate-200 bg-white p-2 h-fit">
+      <div className="flex flex-col md:flex-row gap-4 w-full">
+        {/* 좌측 필터 패널 — 고정폭, 모바일에선 위로 쌓임 */}
+        <aside className="w-full md:w-52 md:shrink-0 rounded-xl border border-slate-200 bg-white p-2 h-fit">
           <div className="px-2 py-1.5 text-[11px] font-semibold text-slate-400">필터</div>
           <nav className="space-y-0.5">
             {FILTERS.map((f) => {
@@ -113,8 +113,8 @@ export default async function ClientsPage({
           </Link>
         </aside>
 
-        {/* 우측: 검색 + 테이블 */}
-        <section className="space-y-3 min-w-0">
+        {/* 우측: 검색 + 테이블 — 남은 폭 전부 사용 */}
+        <section className="flex-1 min-w-0 space-y-3">
           {/* 검색 */}
           <form method="get" className="flex flex-wrap items-center gap-2">
             {filter !== "all" && <input type="hidden" name="filter" value={filter} />}
@@ -143,8 +143,8 @@ export default async function ClientsPage({
             )}
           </form>
 
-          <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
-            <table className="w-full text-sm whitespace-nowrap">
+          <div className="w-full rounded-xl border border-slate-200 bg-white overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-sm whitespace-nowrap">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-[11px] text-slate-400">
                   <Th>거래처명</Th>
